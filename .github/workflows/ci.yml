@@ -1,0 +1,49 @@
+# ci.yml: the GitHub Actions workflow that checks every pull request.
+#
+# GitHub runs every YAML file in .github/workflows/. The "on" section says when
+# this one runs. Each job runs on a fresh virtual machine (a "runner") that
+# GitHub provides, free for public repos. The result appears as a check on the
+# pull request page, and a rule on main (set up at the end of M0) blocks the
+# merge until the check passes.
+
+name: CI
+
+on:
+  pull_request:        # every pull request, re-run on each new push to it
+  push:
+    branches: [main]   # and main itself after each merge, so a broken main gets noticed
+
+jobs:
+  checks:
+    # This name is what the pull request page shows, and what the rule on main requires.
+    name: ruff + pytest
+    # A Linux runner: the most common and fastest choice. Nothing in this project depends on Windows.
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Copy the repo's code onto the runner.
+      - uses: actions/checkout@v7
+
+      # 2. Install uv. The action caches downloaded packages between runs,
+      #    so later runs are faster. (This action publishes no floating "v10"
+      #    tag, so it's pinned to an exact release.)
+      - uses: astral-sh/setup-uv@v10.2.0
+
+      # 3. Create .venv with exactly the versions in uv.lock. It installs the
+      #    Python version from .python-version first, if needed.
+      #    --locked makes this step fail if uv.lock doesn't match pyproject.toml,
+      #    which catches a dependency change committed without its lockfile.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # 4. Lint: likely bugs, import order and missing docstrings.
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      # 5. Formatting: --check only reports files ruff would reformat, without
+      #    changing them. Fix locally with `uv run ruff format .`
+      - name: Formatting (ruff format --check)
+        run: uv run ruff format --check .
+
+      # 6. The test suite. These tests never call the real LLM: the runner has no API key.
+      - name: Tests (pytest)
+        run: uv run pytest
