@@ -15,6 +15,11 @@ data/
 *.db
 chroma/
 
+# --- Throwaway code --------------------------------------------------------
+# Rough experiments that are never committed, such as the M1 concept
+# "A rough first version in one file" (scratch/first_loop.py).
+scratch/
+
 # --- Python environment and caches -----------------------------------------
 # The virtual environment uv creates from pyproject.toml + uv.lock.
 .venv/

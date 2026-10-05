@@ -45,7 +45,7 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 **Asked:** what to commit right now, and what the milestones are.
 **Learned:**
 - Commit only after the checks pass. The docs go straight onto `main`, since the first commit is what creates `main`. The code setup goes through a pull request, so CI checks it before it reaches `main`.
-- The milestones (M0 to M6) aren't study material. They're stages of building the real tutor. Each one ends with a working tutor that does a bit more, and I learn the AI concepts by building them.
+- The milestones (M0 to M7) aren't study material. They're stages of building the real tutor. Each one ends with a working tutor that does a bit more, and I learn the AI concepts by building them.
 
 ### ruff and `pyproject.toml` (2026-10-05)
 **Asked:** what ruff checks, what it reads from `pyproject.toml`, and whether `pyproject.toml` is the same in most projects.
