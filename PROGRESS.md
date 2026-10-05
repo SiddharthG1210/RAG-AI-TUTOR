@@ -1,6 +1,6 @@
 # Progress
 
-What I've learned building the Study Tutor, and what I did to learn it, in plain words. Claude adds an entry after every concept (the M0 setup lessons count too). Newest entries are at the bottom.
+What I've learned building the Study Tutor, and what I did to learn it, in plain words. Claude adds an entry when I ask, usually after a concept (the M0 setup lessons count too). Newest entries are at the bottom.
 
 ## Before M0: planning
 
@@ -70,3 +70,17 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - The rule on `main` blocks merging until ruff + pytest pass. It can only be added after the check has run once.
 - `.env.example` is the empty template that git tracks. The real key goes in `.env`, which git ignores. `git restore <file>` undoes my changes to a tracked file.
 - `data/` is ignored too: big files and files that can be regenerated don't belong in the repo.
+
+## M1: one question, graded, with the passage shown
+
+### A rough first version in one file (2026-10-05)
+**Did:** made one test call to Groq, then wrote `main()` in `scratch/first_loop.py`. Claude wrote the two LLM calls: `write_question()` and `grade_answer()`. My `main()` shows a question about a pasted paragraph from section 1.3.1.2 "Classification", reads my answer with `input()`, and prints the grade and the passage. Then I answered three check questions.
+**Learned:**
+- `uv run --with openai --env-file .env <file>` adds `openai` for that one run only and loads `.env` into environment variables. `pyproject.toml` and `uv.lock` stay unchanged. VS Code underlines the import in red because `.venv` doesn't have `openai`. That's harmless.
+- The gpt-oss models are reasoning models: they "think" before answering, and those hidden tokens count toward Groq's free limits. `reasoning_effort` controls how much they think. Every call also carries a built-in template: a 9-word question cost 80 prompt tokens.
+- Every LLM call starts blank. The grading call has never seen the question-writing call, so the passage goes into *every* call. Grading against the passage, not the model's own knowledge, is what "grounded" means here.
+- The grader needs three inputs: the passage, the question and my answer. Without the question, it can't grade "only what the question asks".
+- Printing the passage after the grade is for *me*, so I can check the grade. Sending it to the grader is for the *LLM*, so it grades against the book. They're two different jobs.
+- My `main()` is the glue: it passes values from one call to the next. In the concept "The study loop: state, nodes, edges", those values become the graph's state and each call becomes a node. Re-asking on an empty answer means an empty answer never costs a Groq call.
+- The LLM wrote a question its passage can't answer. It asked *how* probabilities make optimizing easier, but the passage only says they do and leaves the reason for later chapters. Nothing in the rough file catches that. The quote check and the "not answerable from the passage" flag will.
+- A free-text grade can't be trusted by code. It might come back as "Correct", "**Grade:**" in Markdown, or "mostly correct". The `Grade` schema with strict structured output forces one of three exact values.
