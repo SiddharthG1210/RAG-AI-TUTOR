@@ -1,4 +1,4 @@
-+# CLAUDE.md
+# CLAUDE.md
 
 How to work in this repo. Claude Code loads this file into every session.
 
@@ -6,7 +6,7 @@ How to work in this repo. Claude Code loads this file into every session.
 
 ## Read first
 - **`LEARNING_LOG.md`**, at the start of every session: where the last session stopped and what comes next. M0 creates it. Until then, start from the M0 section of PLAN.md.
-- **`PLAN.md`**, for what to build and why: the scope, decisions, design rules, and the roadmap from M0 to M6. Before writing code for a concept, read two things in PLAN.md:
+- **`PLAN.md`**, for what to build and why: the scope, decisions, design rules, and the roadmap from M0 to M7. Before writing code for a concept, read two things in PLAN.md:
   - the concept's row in the roadmap (its branch, what the user writes, what Claude writes),
   - its milestone's "Done when" list.
 - **The `study-tutor-teaching` skill:** invoke it at the start of every session that builds or explains a concept. It sets the teaching loop, the pacing, and which part of the code the user writes.
@@ -43,7 +43,7 @@ Add each new command here (ingesting material, running the app, the retrieval ch
 - **Docstrings and comments:** a docstring on every module, class and function, plus comments explaining the library, algorithm or technique each piece of code uses. The user learns from this code, so err on the side of over-explaining.
 - **Type hints** on every function signature.
 - **Pydantic models** for every structured LLM output (such as `QuestionSet` and `Grade`) and for config (`pydantic-settings`, reading `.env`).
-- **Fail loudly.** Raise a clear error instead of returning an empty or default value. The only fallbacks are the ones PLAN.md defines: "I couldn't find support for this grade", "free limit reached" and "the material doesn't cover this".
+- **Fail loudly.** Raise a clear error instead of returning an empty or default value. The only fallbacks are the ones PLAN.md defines: "I couldn't find support for this grade", "I couldn't find support for this answer", "free limit reached" and "the material doesn't cover this".
 - **Where files go:** see PLAN.md › "Repo layout".
 - **Tests:**
   - One test file per module, so `src/tutor/grading.py` is tested in `tests/test_grading.py`.
@@ -52,7 +52,8 @@ Add each new command here (ingesting material, running the app, the retrieval ch
 
 ## Guardrails
 The reason for each rule is in the PLAN.md section named in brackets.
-- **The LLM does only two jobs:** writing questions and grading typed answers. Plain Python does everything else: picking passages, routing between graph nodes, checking quotes and reusing grades. (Design rules)
+- **The LLM does only three jobs:** writing questions, grading typed answers and answering Ask the book questions. Ask the book is the only agent: the LLM picks its searches, and code runs them, caps them at 3 and checks every citation. Plain Python does everything else: picking passages, routing between graph nodes, checking quotes and reusing grades. (Design rules)
+- **`scratch/` is exempt from these guardrails.** It's ignored by git and holds throwaway code, such as the M1 concept "A rough first version in one file". (Roadmap › M1)
 - **LLM calls go only through `src/tutor/llm.py`,** which uses the `openai` SDK pointed at Groq's OpenAI-compatible URL. No LangChain chat models. (Tech)
 - **Database:** SQLite through the built-in `sqlite3` with plain SQL, and no ORM. SQLite is the source of truth. Chroma is a derived index that must stay rebuildable from it. (Tech; Decisions › Vector store)
 - **Prompts live in `prompts/*.md`,** never as strings in code. The prompt file's hash is stored with every question and grade. (How the tutor behaves in specific cases › Prompt versions stored)

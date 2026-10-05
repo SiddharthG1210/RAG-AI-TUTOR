@@ -1,0 +1,70 @@
+# pyproject.toml — the project's single config file.
+# Python packaging standards (PEP 621) put the project's name, version and
+# dependencies in the [project] table. Tools such as ruff and pytest read their
+# own [tool.*] tables from this same file, so there's no separate config file each.
+
+[project]
+name = "study-tutor"
+# Matches the latest milestone tag: bumped to 0.1.0 when M1 is tagged, and so on.
+version = "0.0.0"
+description = "An adaptive study tutor: questions from your material, grounded grading, spaced reviews."
+readme = "README.md"
+# SPDX identifier. AGPL-3.0 because PyMuPDF (the PDF library) is AGPL-3.0.
+license = "AGPL-3.0-or-later"
+requires-python = ">=3.12"
+# Runtime packages. Empty for now: each one is added with `uv add <package>`
+# in the pull request of the concept that first needs it (PyMuPDF in the M1
+# concept "Turning the PDF into prose with page numbers", and so on).
+dependencies = []
+
+# Development-only tools (PEP 735 dependency groups). `uv sync` installs the
+# "dev" group by default, but these are never installed for people who only
+# run the app.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",  # the test runner
+    "ruff>=0.8",    # linter + formatter
+]
+
+# --- Build system --------------------------------------------------------------
+# Declaring a build backend makes uv install this project into .venv in
+# "editable" mode: `import tutor` works from tests and scripts, and code changes
+# take effect without reinstalling. Hatchling is a widely used backend.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# The code lives in src/tutor/ (the "src layout"). The extra src/ folder
+# means tests import the installed package, never a stray copy in the repo root.
+packages = ["src/tutor"]
+
+# --- ruff: linting and formatting ----------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Rule families, each identified by a letter prefix:
+#   E, W  pycodestyle: basic style errors and warnings
+#   F     pyflakes: real bugs, such as unused imports or undefined names
+#   I     isort: imports sorted and grouped
+#   B     flake8-bugbear: likely bugs, such as mutable default arguments
+#   UP    pyupgrade: use modern syntax for Python 3.12
+#   D     pydocstyle: every module, class and function has a docstring
+#         (the CLAUDE.md docstring rule, checked automatically)
+select = ["E", "W", "F", "I", "B", "UP", "D"]
+
+[tool.ruff.lint.pydocstyle]
+# Google-style docstrings: a summary line, then "Args:", "Returns:" and
+# "Raises:" sections.
+convention = "google"
+
+[tool.ruff.format]
+# The defaults (double quotes, 4-space indents) match the black formatter,
+# the most common Python style. Nothing to override.
+
+# --- pytest ------------------------------------------------------------------------
+[tool.pytest.ini_options]
+# Only look for tests in tests/, so pytest never wanders into .venv or data/.
+testpaths = ["tests"]
