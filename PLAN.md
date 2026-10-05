@@ -276,6 +276,7 @@ README.md          what it is, how to run it, demo link, credit to the d2l autho
 LICENSE            AGPL-3.0
 pyproject.toml, uv.lock, .python-version, .env.example, .gitignore
 .github/workflows/ci.yml      ruff + pytest on every pull request
+docs/project-map.json         the content of the Study Tutor Map (see CLAUDE.md › Project map)
 Dockerfile                    (M7)
 prompts/           question_writer.md, grader.md (M1) · ask_book.md (M2) · mc_writer.md (M3)
 src/tutor/

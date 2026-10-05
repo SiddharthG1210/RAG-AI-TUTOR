@@ -61,12 +61,23 @@ The reason for each rule is in the PLAN.md section named in brackets.
 - **Free tools only.** Ask before adding anything that needs a paid plan, and keep LLM usage inside Groq's free-tier limits. (Decisions › LLM)
 - **License:** the repo is AGPL-3.0 because of PyMuPDF. Check that each new dependency's license is compatible; MIT, BSD and Apache-2.0 are. (Decisions › PDF library)
 
+## Project map
+The Study Tutor Map is an interactive picture of this plan: its concepts, files, tools and study turn, with a tick for every finished concept. Link: https://claude.ai/artifact/8gWtiwGskoX9DaF8nbYtNx
+- **Where it comes from:** its content is `docs/project-map.json`. The personal `project-map` skill (`~/.claude/skills/project-map`) builds the page from that file and publishes it; its SKILL.md documents every field. The map is a view of PLAN.md and the repo: when they disagree, PLAN.md and the code win, and the map gets fixed.
+
+Keep the map current without being asked:
+- **A concept's pull request is merged:** tick that concept on the map. With the ArtifactData tool, `set` the document `progress/<concept id>` to `{"done": true, "on": "<YYYY-MM-DD>"}`. At the start of each session, also tick any merged concept the map hasn't caught up with.
+- **The architecture changes:** when a branch adds, removes or renames a file, folder, tool or dependency, or changes a concept, a milestone or the study turn, update `docs/project-map.json` in that same branch, so the map changes in the same pull request as the code. Every change to PLAN.md gets the same treatment.
+- **After such a pull request is merged:** rebuild the page and republish it to the same link with the project-map skill, leaving out `icon` and `capabilities` so the ticks and settings stay.
+- **Concept ids never change:** ticks are stored under them. To rename a concept, change its `name`.
+
 ## Project documents
 - Each fact lives in exactly one file:
   - `PLAN.md`: what to build and why.
   - `CLAUDE.md`: how to work.
   - `LEARNING_LOG.md`: the session handoff, meaning where we are, what's next, rebuild results and open questions.
   - `PROGRESS.md`: what the user has learned and through what, in plain words. It's written for the user to read.
+  - `docs/project-map.json`: the content of the Study Tutor Map, a view of PLAN.md and the repo (see Project map).
   - Neither kind of note ever goes in PLAN.md.
 - Write these files so that a fresh session understands them on their own:
   - Refer to things by name ("the M1 concept 'Chunking'"), never by a bare number.
