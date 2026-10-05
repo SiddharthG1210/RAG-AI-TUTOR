@@ -1,0 +1,35 @@
+# .gitignore — paths git never tracks.
+# Each line is a pattern: a trailing "/" matches a folder, "*" matches any characters.
+# Check that a path is ignored with:  git check-ignore -v <path>
+
+# --- Secrets ---------------------------------------------------------------
+# Holds the real API key. Only the template, .env.example, is committed.
+.env
+
+# --- Study material and generated data -------------------------------------
+# The d2l PDF (its license allows sharing, but it's large and anyone can
+# download it), tutor.db, checkpoints.db and the chroma/ index all live here.
+# Everything in data/ can be downloaded or rebuilt, so none of it is committed.
+data/
+# Safety net in case a database or index is ever created outside data/.
+*.db
+chroma/
+
+# --- Python environment and caches -----------------------------------------
+# The virtual environment uv creates from pyproject.toml + uv.lock.
+.venv/
+# Compiled bytecode Python writes next to each module it imports.
+__pycache__/
+*.py[cod]
+# Caches written by pytest and ruff to speed up their next run.
+.pytest_cache/
+.ruff_cache/
+# Build output, in case the package is ever built (uv build).
+build/
+dist/
+*.egg-info/
+
+# --- Operating system clutter ----------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
