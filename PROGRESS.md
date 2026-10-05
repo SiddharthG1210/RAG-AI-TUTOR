@@ -53,3 +53,20 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - ruff scans the project's `.py` files and skips `.venv` and anything git ignores.
 - Its rules live in `pyproject.toml` under `[tool.ruff]`: a maximum line length of 100, plus rule families that catch bugs (`F`, `B`), messy style (`E`, `W`), unsorted imports (`I`), outdated syntax (`UP`) and missing docstrings (`D`).
 - Every `pyproject.toml` has the same *layout*, because it's a Python standard: `[project]`, `[build-system]` and `[tool.*]` sections. The *contents* differ, mostly the dependencies list and each team's tool settings.
+
+### Reviewing the plan (2026-10-05)
+**Did:** went through a review of PLAN.md with Claude and agreed the changes.
+**Learned:**
+- An *agent* is an LLM with a tool (like "search the book") that decides by itself when to use it and what to search for. The plan had none, so I added M2, "Ask the book", and cut loading chapters from the web page (the terminal command does the same job) to keep the plan the same size.
+- The embedding model learned language during its training and learns nothing from my book. It turns each passage into a vector by reading only that passage, so loading the whole book at once wouldn't change any vector.
+- Chapters get added one at a time because later chapters are full of code and maths, and the PDF reader has to be checked on them first.
+- Building a rough version of the whole loop first (the M1 concept "A rough first version in one file") gives every later concept a clear job: replace one rough piece with a real one.
+
+### My first pull request (2026-10-05)
+**Did:** opened and merged a pull request, added a rule protecting `main`, created `.env` and downloaded the PDF.
+**Learned:**
+- A pull request asks GitHub to add a branch's changes to `main`. Opening it starts CI on a fresh GitHub machine, and the ✓ or ✗ shows on the PR page. GitHub doesn't require a description; my CLAUDE.md asks for one so I can understand each change later.
+- "Fast-forward" from `git pull` means my `main` just moved forward to match GitHub's.
+- The rule on `main` blocks merging until ruff + pytest pass. It can only be added after the check has run once.
+- `.env.example` is the empty template that git tracks. The real key goes in `.env`, which git ignores. `git restore <file>` undoes my changes to a tracked file.
+- `data/` is ignored too: big files and files that can be regenerated don't belong in the repo.
