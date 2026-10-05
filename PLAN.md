@@ -9,9 +9,9 @@ An adaptive study tutor. You give it study material and it quizzes you on it:
 
 You're the first user, and you're building it to learn RAG and agentic AI. Every tool must be free.
 
-The first material is *Dive into Deep Learning* (the d2l.ai PDF, CC BY-SA 4.0, credit to Zhang, Lipton, Li & Smola), starting with chapter 1, which is mostly prose. The repo `D:\projects\RAG-AI-tutor` is initialized on `main`, with no commits yet.
+The first material is *Dive into Deep Learning* (the d2l.ai PDF, CC BY-SA 4.0, credit to Zhang, Lipton, Li & Smola), starting with chapter 1, which is mostly prose. The repo `D:\projects\RAG-AI-tutor` is public on GitHub at https://github.com/SiddharthG1210/RAG-AI-TUTOR.
 
-Machine: Windows 11, Python 3.12.6, Git 2.53 (Git Credential Manager set up), a GTX 1650 with 4 GB of VRAM, 15 GB of RAM, and winget. Not installed: uv, the gh CLI, Ollama, Docker.
+Machine: Windows 11, Python 3.12.6, Git 2.53 (Git Credential Manager set up), uv, a GTX 1650 with 4 GB of VRAM, 15 GB of RAM, and winget. Not installed: the gh CLI, Ollama, Docker.
 
 This file is the complete build plan, from setup (M0) to the shareable v1 (M6): what to build and why. How to work in the repo (workflow, git, coding style) is in `CLAUDE.md`. The session handoff is in `LEARNING_LOG.md`, and what you've learned is in `PROGRESS.md`.
 
@@ -393,4 +393,3 @@ Then add the demo link and credit to the README, tag `v1.0.0` and publish the Gi
 
 ## Still open
 - The proposed decisions, each confirmed before the milestone that needs it.
-- Public repo, which is recommended because of the AGPL license and the M6 demo.
