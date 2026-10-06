@@ -35,6 +35,9 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Check the lint rules | `uv run ruff check .` |
 | Format the code | `uv run ruff format .` |
 | Add a runtime package | `uv add <package>`, in the pull request of the concept that first needs it |
+| Ingest a chapter (saves its topics to `data/tutor.db`) | `uv run python scripts/ingest.py --chapter 1` |
+| Print the text an ingest would keep, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
+| List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
 Add each new command here (ingesting material, running the app, the retrieval check) in the same pull request that creates it.
 

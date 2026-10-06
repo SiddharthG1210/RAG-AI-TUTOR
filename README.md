@@ -19,9 +19,10 @@ You need Python 3.12 and [uv](https://docs.astral.sh/uv/).
 uv sync                     # create .venv and install the exact versions in uv.lock
 uv run pytest               # run the tests
 copy .env.example .env      # then put your free Groq API key in .env
+uv run python scripts/ingest.py --chapter 1   # load chapter 1 of the PDF in data/
 ```
 
-More commands (adding material, starting the app) get added here as they're built.
+More commands (starting the app) get added here as they're built.
 
 ## Study material
 The first material is [*Dive into Deep Learning*](https://d2l.ai) by Aston Zhang, Zachary C. Lipton, Mu Li and Alexander J. Smola, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The book isn't included in this repo. Download [the PDF](https://d2l.ai/d2l-en.pdf) into `data/`.
