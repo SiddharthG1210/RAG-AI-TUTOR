@@ -12,10 +12,13 @@ readme = "README.md"
 # SPDX identifier. AGPL-3.0 because PyMuPDF (the PDF library) is AGPL-3.0.
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.12"
-# Runtime packages. Empty for now: each one is added with `uv add <package>`
-# in the pull request of the concept that first needs it (PyMuPDF in the M1
-# concept "Turning the PDF into prose with page numbers", and so on).
-dependencies = []
+# Runtime packages. Each one is added with `uv add <package>` in the pull
+# request of the concept that first needs it.
+dependencies = [
+    # Reads the PDF (M1 concept "Turning the PDF into prose with page numbers").
+    # AGPL-3.0, which is why this project is AGPL-3.0.
+    "pymupdf>=1.28.2",
+]
 
 # Development-only tools (PEP 735 dependency groups). `uv sync` installs the
 # "dev" group by default, but these are never installed for people who only
