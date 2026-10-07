@@ -20,6 +20,15 @@ How to work in this repo. Claude Code loads this file into every session.
 - Each milestone ends with a version tag and a GitHub Release. PLAN.md › "Finishing a milestone" says when.
 - Decisions marked **Proposed** in PLAN.md › Decisions aren't final. Confirm each one with the user before the milestone that needs it, then update its row.
 
+## Who writes what
+This overrides the `study-tutor-teaching` skill's "Claude writes most of the code" and PLAN.md's "Claude writes" column wherever they disagree.
+- **At the start of each concept,** list its pieces and mark each one "user" or "Claude". The user can move any piece.
+- **AI, ML and RAG logic is the user's:** chunking, embeddings and search, prompts and schemas, the quote check, grading, the graph's state and routing, tool calls, FSRS updates, mistake patterns. The user writes it one small function at a time.
+- **Reason out the need before the code, and keep asking at every step.** Before each piece, and before each step inside it, ask the user one question at a time: what's the next move, and what can we do about it (which idea, Python feature or library could do it). Other useful questions: what data do we have, what would go wrong if we did X. Ask before the answer is in view: write a skeleton's comment for a step only after asking about that step. Help when the user is stuck. Name a library, import or function only when the reasoning reaches the gap it fills, and say what it does and why. Use a quick run only when reasoning can't settle a question.
+- **For each user piece:** explain what it must do and why, give a skeleton (signature, docstring, one comment per step), and wait. Then review it, and give hints instead of fixes. Keep giving skeletons: the user decided that starting a piece from its goal alone takes too long.
+- **Plumbing is Claude's:** database tables and SQL, command-line scripts, config, the web layer and tests. Claude writes it in small pieces too, with a few lines on what each does.
+- **A concept that's mostly plumbing,** such as the M1 concept "Turning the PDF into prose with page numbers": Claude writes all of it and gives its RAG takeaway in one line, with no explain-back.
+
 ## Git
 - The user runs every git command. Claude says when to commit, branch, open a pull request or merge, and explains any command the user hasn't used before. Claude never commits or pushes.
 - Commit small, working steps. Messages follow Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`.
@@ -35,8 +44,8 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Check the lint rules | `uv run ruff check .` |
 | Format the code | `uv run ruff format .` |
 | Add a runtime package | `uv add <package>`, in the pull request of the concept that first needs it |
-| Ingest a chapter (saves its topics to `data/tutor.db`) | `uv run python scripts/ingest.py --chapter 1` |
-| Print the text an ingest would keep, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
+| Ingest a chapter (saves its topics and passages to `data/tutor.db`) | `uv run python scripts/ingest.py --chapter 1` |
+| Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
 Add each new command here (ingesting material, running the app, the retrieval check) in the same pull request that creates it.
