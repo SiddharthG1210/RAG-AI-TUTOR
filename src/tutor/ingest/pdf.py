@@ -325,19 +325,29 @@ class Topic:
 
 @dataclass(frozen=True)
 class Paragraph:
-    """One block of prose, with the topic and page it came from.
+    """One paragraph of prose, with the topic and the pages it came from.
+
+    A paragraph read from the PDF sits on one page, so its start and end pages
+    are the same. A paragraph glued back together across a page break (the M1
+    concept "Chunking") starts on one page and ends on the next, which is why
+    both ends are kept: a passage's page range runs from its first paragraph's
+    start page to its last paragraph's end page.
 
     Attributes:
         topic: The number of the topic it belongs to, e.g. "1.3.1.2".
-        page: The PDF page it's on, counted from 1.
-        page_label: The printed page number it's on.
+        page: The PDF page it starts on, counted from 1.
+        page_label: The printed page number it starts on.
         text: The cleaned text.
+        end_page: The PDF page it ends on, counted from 1.
+        end_page_label: The printed page number it ends on.
     """
 
     topic: str
     page: int
     page_label: str
     text: str
+    end_page: int
+    end_page_label: str
 
 
 @dataclass(frozen=True)
@@ -471,7 +481,15 @@ def split_into_topics(
                 )
             if not current.skipped:
                 paragraphs.append(
-                    Paragraph(current.number, block.page, block.page_label, block.text)
+                    # A block sits on one page, so it starts and ends on the same page.
+                    Paragraph(
+                        current.number,
+                        block.page,
+                        block.page_label,
+                        block.text,
+                        end_page=block.page,
+                        end_page_label=block.page_label,
+                    )
                 )
 
     missing = [f"{section.number} {section.title}" for section in remaining]
