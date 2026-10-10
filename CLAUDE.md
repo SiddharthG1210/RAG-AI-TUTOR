@@ -44,7 +44,9 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Check the lint rules | `uv run ruff check .` |
 | Format the code | `uv run ruff format .` |
 | Add a runtime package | `uv add <package>`, in the pull request of the concept that first needs it |
-| Ingest a chapter (saves its topics and passages to `data/tutor.db`) | `uv run python scripts/ingest.py --chapter 1` |
+| Ingest a chapter (saves its topics and passages to `data/tutor.db` and embeds the passages) | `uv run python scripts/ingest.py --chapter 1` |
+| Embed every saved passage again, after changing the header or the embedding model | `uv run python scripts/ingest.py --embed` |
+| Check search on chapter 1 (test queries, off-topic ones, the scores for the cut-off) | `uv run python scripts/check_retrieval.py` |
 | Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
@@ -67,7 +69,7 @@ The reason for each rule is in the PLAN.md section named in brackets.
 - **The LLM does only three jobs:** writing questions, grading typed answers and answering Ask the book questions. Ask the book is the only agent: the LLM picks its searches, and code runs them, caps them at 3 and checks every citation. Plain Python does everything else: picking passages, routing between graph nodes, checking quotes and reusing grades. (Design rules)
 - **`scratch/` is exempt from these guardrails.** It's ignored by git and holds throwaway code, such as the M1 concept "A rough first version in one file". (Roadmap › M1)
 - **LLM calls go only through `src/tutor/llm.py`,** which uses the `openai` SDK pointed at Groq's OpenAI-compatible URL. No LangChain chat models. (Tech)
-- **Database:** SQLite through the built-in `sqlite3` with plain SQL, and no ORM. SQLite is the source of truth. Chroma is a derived index that must stay rebuildable from it. (Tech; Decisions › Vector store)
+- **Database:** SQLite through the built-in `sqlite3` with plain SQL, and no ORM. SQLite is the source of truth, embeddings included. Search is a NumPy cosine over the stored vectors; Chroma, if the optional extra after v1.0.0 is built, is a derived index that must stay rebuildable from SQLite. (Tech; Decisions › Vector store)
 - **Prompts live in `prompts/*.md`,** never as strings in code. The prompt file's hash is stored with every question and grade. (How the tutor behaves in specific cases › Prompt versions stored)
 - **Compare characters wherever PLAN.md says characters.** The quote check and the same-answer check never use embedding similarity. (Design rules › Three kinds of matching)
 - **Free tools only.** Ask before adding anything that needs a paid plan, and keep LLM usage inside Groq's free-tier limits. (Decisions › LLM)
