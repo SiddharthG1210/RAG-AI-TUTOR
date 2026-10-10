@@ -15,6 +15,9 @@ requires-python = ">=3.12"
 # Runtime packages. Each one is added with `uv add <package>` in the pull
 # request of the concept that first needs it.
 dependencies = [
+    # Runs the bge-small embedding model on ONNX Runtime, without PyTorch
+    # (M1 concept "Embeddings and vector search"). Apache-2.0. Brings NumPy.
+    "fastembed>=0.9.0",
     # Reads the PDF (M1 concept "Turning the PDF into prose with page numbers").
     # AGPL-3.0, which is why this project is AGPL-3.0.
     "pymupdf>=1.28.2",

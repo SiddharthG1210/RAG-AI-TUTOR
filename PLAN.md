@@ -32,7 +32,7 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 | Question | Choice | Notes |
 |---|---|---|
 | Topic | The smallest numbered heading above a passage, read from the PDF's bookmarks | About 20 topics in chapter 1. The Summary and Exercises sections are skipped |
-| Passage | 120–350 words of whole paragraphs, never crossing a topic boundary | Stores its topic and page range. The cap of 350 keeps every passage readable by the embedding model, which reads about 380 words. Edge cases, decided in the M1 concept "Chunking": a paragraph split by a page break is glued back first; a short last passage borrows paragraphs from the one before it; a topic under 120 words stays one short passage, listed in the ingest summary; a single paragraph over 350 words stops the ingest, and splitting it at a sentence end is written when a chapter first needs it |
+| Passage | 120–350 words of whole paragraphs, never crossing a topic boundary | Stores its topic and page range. The cap of 350 keeps nearly every passage inside the embedding model's limit of 512 tokens (about 380 words of plain prose). The model drops anything past the limit, header included, so search can't see the end of a longer passage, though its stored text stays whole; the ingest command lists every such passage (chapter 1 has one, 15 tokens over). Edge cases, decided in the M1 concept "Chunking": a paragraph split by a page break is glued back first; a short last passage borrows paragraphs from the one before it; a topic under 120 words stays one short passage, listed in the ingest summary; a single paragraph over 350 words stops the ingest, and splitting it at a sentence end is written when a chapter first needs it |
 | Reviews | A new question from the same passage, taken from a pool of 3 | The scheduled item (the FSRS card) is the passage. One LLM call writes 3 questions the first time a passage is studied, and the pool is refilled when it runs out, with the passage's earlier questions sent along so they aren't repeated. A session asks only one question per passage. Questions are never written in advance for the whole book |
 | Extra facts in an answer | Grade only what the question asks | Extras the passage doesn't cover get a note and no penalty. Extras that contradict it count as errors |
 | "Grade is wrong" | You pick the right grade | Your grade is used for scheduling and for repeated answers. The grading report lists it as a disagreement, but its agreement figure comes only from a fixed sample of grades (M3 "Measuring the grader") |
@@ -41,8 +41,8 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 | Ask the book | An agent with one tool, `search_book(query)`, used after a grade | The LLM decides what to search for, at most 3 searches. Code runs each search, and the answer must cite its passages with quotes that code checks. Up to 4 LLM calls per question, only when you use it. Arrives in M2 |
 | LLM | Groq free tier | `openai/gpt-oss-20b` writes questions and `openai/gpt-oss-120b` grades. Each model is limited to 30 requests/min, 1K requests/day, 8K tokens/min and 200K tokens/day (roughly 100 typed answers a day). Re-check them at console.groq.com/settings/limits. Both are reasoning models: their reasoning tokens count toward these limits, 8K tokens/min is the tightest, and every call sets `reasoning_effort`. **Proposed:** `openai/gpt-oss-20b` also answers Ask the book, so it doesn't spend the grader's daily tokens. Confirm before M2 |
 | PDF library | PyMuPDF | It's AGPL-3.0, so the repo is AGPL-3.0 and its source must be public once the app is hosted |
-| Embeddings | **Proposed:** `BAAI/bge-small-en-v1.5` through sentence-transformers, local, on the CPU | On Linux (CI and the M7 image), PyPI's PyTorch brings a few GB of CUDA libraries, so uv points at PyTorch's CPU-only index there. The alternative is `fastembed`: the same model on ONNX, with no PyTorch. Confirm before M1 "Embeddings and vector search" |
-| Vector store | **Proposed:** Chroma, saved to a folder; a derived index that can be rebuilt from SQLite | The collection uses cosine distance, since Chroma's default is L2. Confirm before M1 "Embeddings and vector search" |
+| Embeddings | `BAAI/bge-small-en-v1.5` (384 numbers per text, MIT) through `fastembed`, local, on the CPU | fastembed runs the model on ONNX Runtime with no PyTorch, so CI, which installs every dependency on each pull request, and the M7 image stay small. sentence-transformers runs the same model on PyTorch, which pulls several GB of GPU libraries on Linux; it's only worth it for fine-tuning, which isn't planned. Passages and queries must go through the same model: vectors from different models can't be compared, and changing the model means embedding every passage again |
+| Vector store | No vector database: passage vectors are stored in SQLite, and search is a NumPy cosine against every passage | Checking every vector takes about a millisecond even for the whole book (about 2,000 passages); a vector database only pays off at hundreds of thousands of vectors. Only `search()` touches the vectors, so a database can replace its inside later without changing anything else. Chroma is planned as an optional extra after v1.0.0, to learn a vector database's API (Roadmap › After v1.0.0) |
 | UI | **Proposed:** Gradio, mounted inside FastAPI | Confirm before M1 "API and UI" |
 | Python environment | uv | Installs the packages and keeps a lockfile (`uv.lock`), so this machine and CI install exactly the same versions |
 | FSRS ratings | **Proposed:** typed: correct → Good, partly → Hard, incorrect → Again. MC: correct → Hard, wrong → Again | MC counts for less, because recognising an answer is easier than recalling it. A side effect to weigh: in FSRS, Hard raises the passage's difficulty and only Easy lowers it (this mapping never gives Easy), so frequent MC answers would shorten its typed-review intervals. The alternative: MC wrong → Again, MC right → no FSRS update, because recognising an answer doesn't prove you can recall it. Confirm before M4 |
@@ -50,8 +50,9 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 | Sharing (M7) | **Proposed:** a live demo on Hugging Face Spaces (free CPU) in demo mode, preloaded with every chapter that passed its checks, with a demo video as the backup | Confirm before M7 |
 
 ## Tech
-- **Decided:** Python, FastAPI, LangGraph, SQLite, the `fsrs` library, Git and GitHub, PyMuPDF, the Groq free tier, uv, ruff (linting and formatting).
-- **Proposed** (see Decisions): bge-small-en-v1.5 through sentence-transformers, Chroma, Gradio.
+- **Decided:** Python, FastAPI, LangGraph, SQLite, the `fsrs` library, Git and GitHub, PyMuPDF, bge-small-en-v1.5 through fastembed, NumPy (vector search), the Groq free tier, uv, ruff (linting and formatting).
+- **Proposed** (see Decisions): Gradio.
+- **Optional, after v1.0.0:** Chroma.
 - **Implementation choices:**
   - LLM calls go through a thin wrapper around the `openai` SDK, pointed at Groq's OpenAI-compatible URL, so switching provider only means editing `.env`. Most LangGraph tutorials use LangChain chat models instead. Most of our calls are a single structured-output request, though, and Ask the book's tool calls use the same SDK's `tools` parameter, so a thin wrapper is enough and keeps the mechanism visible.
   - SQLite through Python's built-in `sqlite3` with plain SQL. A production app would usually add SQLAlchemy with migrations, which is overkill for one user.
@@ -131,9 +132,10 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
      │
      ├──► Groq LLM ........... writes questions, grades typed answers,
      │                         and answers Ask the book as an agent
-     ├──► bge-small* ......... turns a typed topic or a search into
-     │      │                  an embedding
-     │      └──► Chroma* ..... finds the passages closest to it
+     ├──► bge-small .......... turns a typed topic or a search into
+     │      │                  an embedding (run by fastembed)
+     │      └──► NumPy ....... compares it with every passage's
+     │                         embedding and finds the closest
      ├──► fsrs ............... decides when each passage comes back
      └──► SQLite ............. stores everything: passages, questions,
                                answers, grades, marks, the schedule
@@ -165,12 +167,12 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
      │
      ├──► e. Save topics + passages .................. SQLite
      │
-     └──► f. Turn each passage, with its section ..... bge-small*
+     └──► f. Turn each passage, with its section ..... bge-small
              number and title in front, into an
-             embedding, and store it ................. Chroma*
+             embedding, and store it ................. SQLite
 
   No LLM runs here, so adding material uses none of the free quota.
-  SQLite is the source of truth; Chroma can always be rebuilt from it.
+  SQLite holds everything, embeddings included.
 ```
 
 ### Diagram 3: a study session (WHEN = the milestone that adds each part)
@@ -181,7 +183,7 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
      │
      ▼
   b. Pick a passage
-     • typed topic -> the most similar passages ... bge* + Chroma*   M1
+     • typed topic -> the most similar passages ... bge + NumPy      M1
        (nothing close enough -> "the material doesn't cover this")
      • "You choose" -> due reviews first .......... fsrs + SQLite    M4
                     -> mix-up follow-ups, weak .... SQLite           M5
@@ -204,7 +206,7 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
      • same answer seen before? reuse its grade ... SQLite           M1
      • typed -> LLM grades it against the passage . Groq LLM         M1
      • multiple choice -> code checks your pick ... Python           M3
-     • tag the mistake, spot mix-ups .............. LLM + Chroma*    M5
+     • tag the mistake, spot mix-ups .............. LLM + search     M5
      │
      ▼
   f. Show the grade, what's missing or wrong, ..... Gradio*          M1
@@ -255,14 +257,14 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
 ## Data (SQLite tables, by the milestone that adds them)
 | Milestone | Tables |
 |---|---|
-| M1 | **topics:** number, title, level, page (both the PDF's page and the number printed on it, since the front matter makes them differ: printed page 10 is the PDF's page 50). **passages:** topic, text, page range (start and end, as PDF and printed pages), order. **questions:** passage, text, key points, quote, prompt version, used or unused. **attempts:** question, session, your answer, tidied answer, grade, explanation, prompt version, model and settings. **llm_calls:** model, tokens, time |
+| M1 | **topics:** number, title, level, page (both the PDF's page and the number printed on it, since the front matter makes them differ: printed page 10 is the PDF's page 50). **passages:** topic, text, page range (start and end, as PDF and printed pages), order. **embeddings:** passage, model, vector. **questions:** passage, text, key points, quote, prompt version, used or unused. **attempts:** question, session, your answer, tidied answer, grade, explanation, prompt version, model and settings. **llm_calls:** model, tokens, time |
 | M2 | **asks:** session, your question, the answer, the cited passages with their quotes, number of searches, prompt version. Optional: **passages_fts**, an FTS5 keyword index of the passages |
 | M3 | **marks:** attempt, agree or disagree, your grade, sampled or not. **flags:** question, reason, note. **questions** gains: type (typed/MC), options, correct option |
 | M4 | **cards:** passage, FSRS card (JSON), due date. **review_log:** passage, rating, date, attempt |
 | M5 | **mistakes:** attempt, mistake type, wrong statement, mixed-up topic. **patterns:** topic pair (or topic plus mistake type), active or resolved |
 | M6 | **sessions:** id, started, last active, open or closed. LangGraph keeps its own checkpoint tables in a separate `checkpoints.db` |
 
-Chroma (from M1) has one collection, with one entry per passage. The entry's id is the passage id, and its labels are the topic and the pages.
+Embeddings (from M1) are stored in SQLite, one per passage, with the name of the model that made them, so a change of model is noticed instead of mixing vectors from two models.
 
 **Passages are frozen once studied.** Questions, attempts and FSRS cards point to passage ids, so re-chunking a chapter you've studied would cut them off from their history. A fix to extraction or chunking applies only to chapters not studied yet.
 
@@ -289,7 +291,7 @@ src/tutor/
   api/             main.py, ui.py (M1) · progress page (M6) · demo.py (M7)
 scripts/           ingest.py, check_retrieval.py, regrade.py (M1)
 tests/             one test file per core function
-data/              (ignored by git) the PDF, tutor.db, checkpoints.db, chroma/
+data/              (ignored by git) the PDF, tutor.db, checkpoints.db, the downloaded embedding model
 scratch/           (ignored by git) first_loop.py, the rough first version (M1 concept 0)
 ```
 
@@ -328,7 +330,7 @@ scratch/           (ignored by git) first_loop.py, the rough first version (M1 c
 | 0 | A rough first version in one file | none: never committed | The loop: show the question, read your answer with `input()`, print the grade | The two Groq calls, with their prompts written inline. The file is `scratch/first_loop.py`, which git ignores. It runs with `uv run --with openai --env-file .env scratch/first_loop.py`, so nothing is added to the project |
 | 1 | Turning the PDF into prose with page numbers | feat/pdf-extract | `classify_block()`: label each text block as prose, heading, code, math, caption, header or table, using the fonts found in chapter 1. It decides which text retrieval ever sees: only prose is kept, and headings mark where topics start | PDF reading, a listing of chapter 1's fonts and sizes to decide from, bookmarks to topics, the topics table, the ingest command, tests |
 | 2 | Chunking | feat/chunking | `chunk_paragraphs()` (packing whole paragraphs, rebalancing a short last passage) and `join_page_breaks()` (gluing paragraphs split across pages) | The passages table, saving passages during ingest, tests |
-| 3 | Embeddings and vector search | feat/retrieval | `search(query, k, topic=None)`. Tiny example: cosine similarity in NumPy | Model loading. Embeddings computed by us, not by Chroma behind the scenes, with the section title in front of each passage and bge's prefix on queries. The Chroma index (cosine distance) and its rebuild. The distance cut-off. A retrieval check with 10 test queries, plus off-topic ones and topics chapter 1 only mentions |
+| 3 | Embeddings and vector search | feat/retrieval | Tiny example: cosine similarity in NumPy. `embed_passages()` and `embed_query()` (the section title in front of each passage, bge's prefix on queries). `search(query, k)`: cosine against every passage, top k. The distance cut-off, chosen from the retrieval check's results | Model loading. The embeddings table in SQLite, saving and loading vectors. Embedding passages during ingest. A retrieval check with 10 test queries, plus off-topic ones and topics chapter 1 only mentions. Tests |
 | 4 | Structured output (question writing) | feat/question-gen | The question-writing prompt and the `QuestionSet` schema (3 questions, each with key points and a quote) | The LLM wrapper (Groq strict mode), the quote check, the question pool, the token log, 429 handling |
 | 5 | Grading grounded in the passage | feat/grading | The grading prompt and the `Grade` schema (grade, what's missing, what's wrong, unchecked extras, quotes). Five test answers (correct, partly correct, wrong, correct with an extra fact, off-topic) and the grade each should get | The same-answer check, the attempts table, the "no support found" path. `scripts/regrade.py`: it re-grades the test answers after any change to `prompts/grader.md` and lists every grade that changed |
 | 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5 |
@@ -435,6 +437,17 @@ Then add the demo link and credit to the README, tag `v1.0.0` and publish the Gi
 - Two browsers get separate sessions.
 - The limit message appears after the cap.
 - The day's LLM usage stays under the cap.
+
+### After v1.0.0 (optional): a vector database
+Search works without one (Decisions › Vector store). This extra is for learning a vector database's API, and for the CV.
+
+| # | Concept | Branch | You write | Claude writes |
+|---|---|---|---|---|
+| 1 | Chroma | feat/chroma | The inside of `search()`, now querying a Chroma collection (cosine distance; Chroma's default is L2) instead of the NumPy loop | The collection saved under `data/chroma/`, rebuilt from the embeddings in SQLite, which stays the source of truth |
+
+**Done when:**
+- The M1 retrieval check gives the same top 5 for every test query as the NumPy search.
+- Deleting `data/chroma/` and running the rebuild restores it.
 
 ## Verification
 - Each milestone's **Done when** list is its acceptance check, run before tagging the release.
