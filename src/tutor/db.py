@@ -3,8 +3,7 @@
 SQLite keeps the whole database in one file (``data/tutor.db``), and Python's
 built-in ``sqlite3`` module talks to it, so there's no server and nothing to
 install. The SQL is written by hand, with no ORM, so every query is visible
-(PLAN.md › Tech). SQLite is the tutor's source of truth: the Chroma index
-added in the M1 concept "Embeddings and vector search" is rebuilt from it.
+(PLAN.md › Tech). SQLite is the tutor's source of truth, embeddings included.
 
 Tables arrive milestone by milestone (PLAN.md › Data). This module has:
 
@@ -12,6 +11,8 @@ Tables arrive milestone by milestone (PLAN.md › Data). This module has:
   one row per section the tutor quizzes on.
 - **passages** (M1 concept "Chunking"): the 120–350-word pieces of each
   topic that questions are written from, with their page ranges.
+- **embeddings** (M1 concept "Embeddings and vector search"): each
+  passage's vector, written and read by ``tutor.retrieval.store``.
 """
 
 import sqlite3
@@ -43,6 +44,15 @@ CREATE TABLE IF NOT EXISTS passages (
     end_page       INTEGER NOT NULL,  -- PDF page it ends on
     end_page_label TEXT    NOT NULL,  -- printed page it ends on
     UNIQUE (topic_id, position)
+);
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    -- One vector per passage: the passage's id is also this table's key.
+    passage_id INTEGER PRIMARY KEY REFERENCES passages(id),
+    model      TEXT    NOT NULL,  -- the model that made it, e.g. 'BAAI/bge-small-en-v1.5'
+    -- The vector's 384 numbers as raw bytes (4 bytes each, so 1,536 bytes).
+    -- A BLOB ("binary large object") stores bytes exactly as given.
+    vector     BLOB    NOT NULL
 );
 """
 
@@ -147,6 +157,31 @@ def list_topics(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT id, number, title, level, page, page_label FROM topics ORDER BY id"
     ).fetchall()
+
+
+def get_passage(conn: sqlite3.Connection, passage_id: int) -> sqlite3.Row:
+    """Return one passage with its topic's number and title.
+
+    Args:
+        conn: An open connection.
+        passage_id: The passage's id, e.g. one that ``search()`` picked.
+
+    Returns:
+        The passage's row: the same columns as ``list_passages()`` gives.
+
+    Raises:
+        ValueError: If no passage has that id.
+    """
+    row = conn.execute(
+        "SELECT passages.*, topics.number, topics.title "
+        "FROM passages JOIN topics ON topics.id = passages.topic_id "
+        "WHERE passages.id = ?",
+        (passage_id,),
+    ).fetchone()
+    # fetchone() gives None when no row matched.
+    if row is None:
+        raise ValueError(f"No passage has the id {passage_id}.")
+    return row
 
 
 def list_passages(conn: sqlite3.Connection) -> list[sqlite3.Row]:
