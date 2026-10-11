@@ -2,12 +2,12 @@
   "title": "Study Tutor Map",
   "name": "Study Tutor",
   "mark": "Map",
-  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 8 October 2026",
+  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 11 October 2026",
   "lede": "Every concept you’ll build, the file it lives in, and the tool that does the work, all linked. Pick anything to see what it touches.",
-  "footer": "Drawn from PLAN.md as of 8 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
+  "footer": "Drawn from PLAN.md as of 11 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
-  "start": "m1-0",
+  "start": "m1-4",
   "milestones": [
     {"n": 0, "short": "Setup", "title": "Setup", "ver": "", "items": [
       {"id": "m0-1", "name": "Tooling: uv, ruff and pytest", "who": null, "youLabel": "you did", "claudeLabel": "Claude did", "why": "One command builds the same environment on your laptop and on CI.", "you": "Ran `uv sync`, `uv run pytest` and the ruff checks.", "claude": "`pyproject.toml`, `.python-version` and the smoke test.", "files": ["pyproject", "uvlock", "pyver", "tests"], "tools": ["uv", "ruff", "pytest"]},
