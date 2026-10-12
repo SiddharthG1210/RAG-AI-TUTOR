@@ -13,12 +13,24 @@ Tables arrive milestone by milestone (PLAN.md › Data). This module has:
   topic that questions are written from, with their page ranges.
 - **embeddings** (M1 concept "Embeddings and vector search"): each
   passage's vector, written and read by ``tutor.retrieval.store``.
+- **questions** (M1 concept "Structured output (question writing)"): each
+  passage's pool of checked questions, asked one per review.
+- **llm_calls** (same concept): one row per LLM call, with its tokens, to
+  keep an eye on the free tier.
 """
 
+import json
 import sqlite3
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tutor.ingest.pdf import Paragraph, Topic
+
+# TYPE_CHECKING is False when the program runs, so this import only happens
+# for type checkers and editors. tutor.questions imports this module, so
+# importing it back at run time would be a circular import.
+if TYPE_CHECKING:
+    from tutor.questions import Question
 
 # "CREATE TABLE IF NOT EXISTS" makes the schema safe to run on every
 # connection: it creates missing tables and leaves existing ones alone.
@@ -53,6 +65,30 @@ CREATE TABLE IF NOT EXISTS embeddings (
     -- The vector's 384 numbers as raw bytes (4 bytes each, so 1,536 bytes).
     -- A BLOB ("binary large object") stores bytes exactly as given.
     vector     BLOB    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS questions (
+    id             INTEGER PRIMARY KEY,
+    passage_id     INTEGER NOT NULL REFERENCES passages(id),
+    text           TEXT    NOT NULL,  -- the question itself
+    key_points     TEXT    NOT NULL,  -- what a good answer contains: a JSON list of strings
+    quote          TEXT    NOT NULL,  -- the passage's words it's based on, as the LLM copied them
+    -- The first 12 characters of the prompt file's SHA-256 hash, so a change
+    -- in the questions can be traced to the prompt change behind it.
+    prompt_version TEXT    NOT NULL,
+    used           INTEGER NOT NULL DEFAULT 0,  -- 0 = still in the pool, 1 = already asked
+    created_at     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id                INTEGER PRIMARY KEY,
+    model             TEXT    NOT NULL,  -- e.g. 'openai/gpt-oss-20b'
+    purpose           TEXT    NOT NULL,  -- what the call was for, e.g. 'questions'
+    prompt_tokens     INTEGER NOT NULL,  -- tokens sent: instructions plus passage
+    completion_tokens INTEGER NOT NULL,  -- tokens written back, reasoning included
+    total_tokens      INTEGER NOT NULL,  -- what counts against the free-tier limits
+    seconds           REAL    NOT NULL,  -- how long the call took
+    called_at         TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -199,3 +235,75 @@ def list_passages(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         "FROM passages JOIN topics ON topics.id = passages.topic_id "
         "ORDER BY topics.id, passages.position"
     ).fetchall()
+
+
+def save_questions(
+    conn: sqlite3.Connection, passage_id: int, questions: list["Question"], prompt_version: str
+) -> None:
+    """Add checked questions to a passage's pool, all or nothing.
+
+    Args:
+        conn: An open connection.
+        passage_id: The passage they were written from.
+        questions: The questions whose quotes passed the check.
+        prompt_version: The question-writing prompt's version (from ``load_prompt()``).
+    """
+    rows = [
+        # json.dumps turns the list of key points into one string, e.g.
+        # '["firm categories are hard to optimize", "..."]', since a column
+        # holds one value. json.loads turns it back into a list.
+        (passage_id, q.question, json.dumps(q.key_points), q.quote, prompt_version)
+        for q in questions
+    ]
+    with conn:
+        conn.executemany(
+            "INSERT INTO questions (passage_id, text, key_points, quote, prompt_version) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
+def list_questions(conn: sqlite3.Connection, passage_id: int) -> list[sqlite3.Row]:
+    """Return every question ever written for a passage, oldest first, used or not.
+
+    A refill sends these to the question writer, so it doesn't repeat them.
+
+    Args:
+        conn: An open connection.
+        passage_id: The passage.
+
+    Returns:
+        One row per question. ``key_points`` is a JSON string; ``json.loads``
+        turns it back into a list.
+    """
+    return conn.execute(
+        "SELECT * FROM questions WHERE passage_id = ? ORDER BY id", (passage_id,)
+    ).fetchall()
+
+
+def log_llm_call(
+    conn: sqlite3.Connection,
+    model: str,
+    purpose: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    seconds: float,
+) -> None:
+    """Record one LLM call and the tokens it used (PLAN.md › Free-tier guard).
+
+    Args:
+        conn: An open connection.
+        model: The model that answered.
+        purpose: What the call was for, e.g. "questions".
+        prompt_tokens: Tokens sent.
+        completion_tokens: Tokens written back, reasoning included.
+        total_tokens: The two together: what counts against the free-tier limits.
+        seconds: How long the call took.
+    """
+    with conn:
+        conn.execute(
+            "INSERT INTO llm_calls (model, purpose, prompt_tokens, completion_tokens, "
+            "total_tokens, seconds) VALUES (?, ?, ?, ?, ?, ?)",
+            (model, purpose, prompt_tokens, completion_tokens, total_tokens, seconds),
+        )

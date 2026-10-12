@@ -285,7 +285,7 @@ src/tutor/
   config.py, db.py, llm.py (tool calls added in M2)
   ingest/          pdf.py, chunk.py (M1) · markdown.py (only if the source switches)
   retrieval/       embed.py, store.py, search.py (M1) · keyword.py (M2, optional)
-  questions.py, grading.py (M1) · ask.py (M2) · mc.py, feedback.py, report.py (M3)
+  questions.py, quotes.py, grading.py (M1) · ask.py (M2) · mc.py, feedback.py, report.py (M3)
   scheduling.py (M4) · mistakes.py, patterns.py (M5)
   graph/           state.py, nodes.py, build.py (M1; grows each milestone) · agent.py (M2)
   api/             main.py, ui.py (M1) · progress page (M6) · demo.py (M7)
@@ -331,7 +331,7 @@ scratch/           (ignored by git) first_loop.py, the rough first version (M1 c
 | 1 | Turning the PDF into prose with page numbers | feat/pdf-extract | `classify_block()`: label each text block as prose, heading, code, math, caption, header or table, using the fonts found in chapter 1. It decides which text retrieval ever sees: only prose is kept, and headings mark where topics start | PDF reading, a listing of chapter 1's fonts and sizes to decide from, bookmarks to topics, the topics table, the ingest command, tests |
 | 2 | Chunking | feat/chunking | `chunk_paragraphs()` (packing whole paragraphs, rebalancing a short last passage) and `join_page_breaks()` (gluing paragraphs split across pages) | The passages table, saving passages during ingest, tests |
 | 3 | Embeddings and vector search | feat/retrieval | Tiny example: cosine similarity in NumPy. `embed_passages()` and `embed_query()` (the section title in front of each passage, bge's prefix on queries). `search(query, k)`: cosine against every passage, top k. The distance cut-off, chosen from the retrieval check's results | Model loading. The embeddings table in SQLite, saving and loading vectors. Embedding passages during ingest. A retrieval check with 10 test queries, plus off-topic ones and topics chapter 1 only mentions. Tests |
-| 4 | Structured output (question writing) | feat/question-gen | The question-writing prompt and the `QuestionSet` schema (3 questions, each with key points and a quote) | The LLM wrapper (Groq strict mode), the quote check, the question pool, the token log, 429 handling |
+| 4 | Structured output (question writing) | feat/question-gen | The question-writing prompt, the `QuestionSet` schema (3 questions, each with key points and a quote), the quote check (`quotes.py`), and `write_questions()`, the wiring from passage to saved questions | Config, the LLM wrapper (Groq strict mode), the questions and token-log tables, 429 handling, a check on 10 passages, tests |
 | 5 | Grading grounded in the passage | feat/grading | The grading prompt and the `Grade` schema (grade, what's missing, what's wrong, unchecked extras, quotes). Five test answers (correct, partly correct, wrong, correct with an extra fact, off-topic) and the grade each should get | The same-answer check, the attempts table, the "no support found" path. `scripts/regrade.py`: it re-grades the test answers after any change to `prompts/grader.md` and lists every grade that changed |
 | 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5 |
 | 7 | Conditional edges | feat/grounding-retry | The routing function: ask, write again (once), or skip the passage | Retry counters, tests |
