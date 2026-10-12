@@ -48,13 +48,17 @@ def normalize(text: str) -> str:
     for mark in "“”‘’\"'":
         text = text.replace(mark, "")
 
-    # 4. The book's other dashes, which NFKC leaves alone:
+    # 4. Other dashes, which NFKC leaves alone:
     #    - the em dash "—" only ever separates words ("equal—if"), so it
     #      becomes a space;
-    #    - the minus sign "−" ("say, −1") and the en dash "–" ("5–10 tags")
-    #      become a plain "-", the character the LLM types for them.
+    #    - the book's minus sign "−" ("say, −1") and en dash "–" ("5–10
+    #      tags") become a plain "-", the character the LLM usually types;
+    #    - so does the Unicode hyphen "‐", which the LLM sometimes types
+    #      instead: the check script caught gpt-oss writing "short‐term"
+    #      where the book has "short-term". (NFKC has already turned the
+    #      non-breaking hyphen into this one.)
     text = text.replace("—", " ")
-    for dash in "−–":
+    for dash in "−–‐":
         text = text.replace(dash, "-")
 
     # 5. Dashes, in two passes. Both skip a "-" that comes right before a

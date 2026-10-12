@@ -86,6 +86,8 @@ def test_normalize_tidies_each_kind_of_difference() -> None:
     # hyphen), so 1.3.1.3 Tagging says "multilabel". The LLM may write either
     # form, so hyphens go from both texts.
     assert normalize("multi-label") == normalize("multilabel") == "multilabel"
+    # gpt-oss sometimes types the Unicode hyphen, or the non-breaking one.
+    assert normalize("short‐term") == normalize("short‑term") == normalize("short-term")
     # A dash before a number stays, as a plain "-": signs and ranges matter.
     assert normalize("say, −1") == normalize("say, -1") == "say, -1"
     assert normalize("5–10 tags") == normalize("5-10 tags") == "5-10 tags"

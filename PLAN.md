@@ -289,7 +289,7 @@ src/tutor/
   scheduling.py (M4) · mistakes.py, patterns.py (M5)
   graph/           state.py, nodes.py, build.py (M1; grows each milestone) · agent.py (M2)
   api/             main.py, ui.py (M1) · progress page (M6) · demo.py (M7)
-scripts/           ingest.py, check_retrieval.py, regrade.py (M1)
+scripts/           ingest.py, check_retrieval.py, check_questions.py, regrade.py (M1)
 tests/             one test file per core function
 data/              (ignored by git) the PDF, tutor.db, checkpoints.db, the downloaded embedding model
 scratch/           (ignored by git) first_loop.py, the rough first version (M1 concept 0)

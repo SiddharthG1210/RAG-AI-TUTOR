@@ -53,6 +53,7 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Ingest a chapter (saves its topics and passages to `data/tutor.db` and embeds the passages) | `uv run python scripts/ingest.py --chapter 1` |
 | Embed every saved passage again, after changing the header or the embedding model | `uv run python scripts/ingest.py --embed` |
 | Check search on chapter 1 (test queries, off-topic ones, the scores for the cut-off) | `uv run python scripts/check_retrieval.py` |
+| Check the question writer on 10 passages, on a copy of the database (the quote-check pass rate; a made-up quote and one-word changes rejected). Makes 10 real LLM calls | `uv run python scripts/check_questions.py` |
 | Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
