@@ -46,6 +46,7 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 | UI | **Proposed:** Gradio, mounted inside FastAPI | Confirm before M1 "API and UI" |
 | Python environment | uv | Installs the packages and keeps a lockfile (`uv.lock`), so this machine and CI install exactly the same versions |
 | FSRS ratings | **Proposed:** typed: correct → Good, partly → Hard, incorrect → Again. MC: correct → Hard, wrong → Again | MC counts for less, because recognising an answer is easier than recalling it. A side effect to weigh: in FSRS, Hard raises the passage's difficulty and only Easy lowers it (this mapping never gives Easy), so frequent MC answers would shorten its typed-review intervals. The alternative: MC wrong → Again, MC right → no FSRS update, because recognising an answer doesn't prove you can recall it. Confirm before M4 |
+| Daily review cap | **Proposed:** no cap | "You choose" asks due reviews before anything new (How the tutor behaves › What "You choose" picks), so after a break a session can be nothing but reviews: with 25 passages overdue, no new passage comes until all 25 are done. That's normal in spaced-repetition apps, and many of them cap reviews per day (for example at most 20) so a comeback session isn't overwhelming. Confirm before M4 |
 | Mix-up follow-ups | **Proposed:** one single-passage question per topic of the pair, each about what makes that topic different | This keeps the single-passage rule. Confirm before M5 |
 | Sharing (M7) | **Proposed:** a live demo on Hugging Face Spaces (free CPU) in demo mode, preloaded with every chapter that passed its checks, with a demo video as the backup | Confirm before M7 |
 
@@ -66,7 +67,8 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
   - The match must be exact after tidying (lowercase, extra spaces removed). It's never a similarity match, because one word ("is" → "isn't") can flip the meaning.
   - A hit reuses the earlier grade, and your corrected grade wins.
   - The lookup also includes the grading prompt's version and the grading model with its settings, so changing either one grades answers afresh.
-  - This also stops double-submits from costing a second call.
+  - Each question is asked only once (see Decisions › Reviews), so a hit mostly means the same answer arrived twice: a double-submit, a page refresh that sends it again, or the grading step running again after a crash. The lookup stops each of these from costing a second LLM call.
+  - The lookup only finds answers already saved. A second click while the first answer is still being graded would reach the LLM too, so the page disables the Submit button until the grade is shown (M1 "API and UI").
 - **Quotes checked in code:** for every question, every grade and every Ask the book citation, the LLM returns a quote from the passage, and code checks that it's really there.
   - Both texts are normalized first: Unicode NFKC (which turns PDF ligatures like "ﬁ" into "fi"), lowercase, straight quotes, words split across lines rejoined, and whitespace collapsed. Then the quote must appear exactly.
   - It's never a fuzzy match, because inserting one "not" into a real quote still scores about 95% similar. It never compares meaning either, because a made-up line that only sounds similar must fail. If fewer than 90% of questions pass, look at the failures before loosening the rule.
@@ -336,7 +338,7 @@ scratch/           (ignored by git) first_loop.py, the rough first version (M1 c
 | 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5 |
 | 7 | Conditional edges | feat/grounding-retry | The routing function: ask, write again (once), or skip the passage | Retry counters, tests |
 | 8 | Pausing for your answer | feat/answer-interrupt | The node that calls `interrupt()`, and resuming | The in-memory checkpointer, session ids, a command-line driver |
-| 9 | API and UI | feat/web-ui | Claude writes it all | FastAPI routes, the Gradio page |
+| 9 | API and UI | feat/web-ui | Claude writes it all | FastAPI routes, the Gradio page. Submit is disabled while an answer is being graded (How the tutor behaves › Same answer, same grade) |
 
 **Done when:**
 - The rough first version asks one question about a pasted paragraph and grades a typed answer.

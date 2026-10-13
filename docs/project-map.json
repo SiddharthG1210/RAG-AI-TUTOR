@@ -2,9 +2,9 @@
   "title": "Study Tutor Map",
   "name": "Study Tutor",
   "mark": "Map",
-  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 13 October 2026",
+  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 14 October 2026",
   "lede": "Every concept you’ll build, the file it lives in, and the tool that does the work, all linked. Pick anything to see what it touches.",
-  "footer": "Drawn from PLAN.md as of 13 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
+  "footer": "Drawn from PLAN.md as of 14 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
   "start": "m1-5",
@@ -25,7 +25,7 @@
       {"id": "m1-6", "num": 6, "name": "The study loop: state, nodes, edges", "who": "you", "why": "Turns separate functions into one loop that runs step by step.", "you": "The state and the `build_graph()` wiring.", "claude": "Node functions that call concepts 1–5.", "files": ["state", "nodes", "build"], "tools": ["langgraph"]},
       {"id": "m1-7", "num": 7, "name": "Conditional edges", "who": "you", "why": "Plain code decides the next step, so routing costs no tokens.", "you": "The routing function: ask, write again (once), or skip the passage.", "claude": "Retry counters, tests.", "files": ["build", "nodes"], "tools": ["langgraph"]},
       {"id": "m1-8", "num": 8, "name": "Pausing for your answer", "who": "you", "why": "The loop has to wait for you across separate web requests.", "you": "The node that calls `interrupt()`, and resuming.", "claude": "The in-memory checkpointer, session ids, a command-line driver.", "files": ["nodes", "build"], "tools": ["langgraph"]},
-      {"id": "m1-9", "num": 9, "name": "API and UI", "who": "claude", "why": "Study in the browser instead of the terminal.", "you": "", "claude": "FastAPI routes and the Gradio page.", "files": ["main", "ui"], "tools": ["fastapi", "gradio"]}
+      {"id": "m1-9", "num": 9, "name": "API and UI", "who": "claude", "why": "Study in the browser instead of the terminal.", "you": "", "claude": "FastAPI routes and the Gradio page, with Submit disabled while an answer is being graded.", "files": ["main", "ui"], "tools": ["fastapi", "gradio"]}
     ]},
     {"n": 2, "short": "Ask the book", "title": "Ask the book, your first agent", "ver": "v0.2.0", "items": [
       {"id": "m2-1", "num": 1, "name": "Tool calling", "who": "you", "why": "Lets the LLM ask your code to run something, here a search of the book.", "you": "The `search_book(query)` tool definition: the description and parameters the LLM reads.", "claude": "Tool calls in the LLM wrapper, running a requested search, tests with a fake LLM.", "files": ["llm", "ask", "search"], "tools": ["groq", "openai"]},
