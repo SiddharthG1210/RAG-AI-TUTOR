@@ -62,6 +62,22 @@ def rate_limit_error(retry_after: str | None) -> openai.RateLimitError:
     )
 
 
+def bad_request(code: str) -> openai.BadRequestError:
+    """Build the error the SDK raises on HTTP 400, with Groq's error code.
+
+    Args:
+        code: Groq's code, e.g. "json_validate_failed" when the answer broke the schema.
+
+    Returns:
+        The error. The SDK reads ``code`` from the error body.
+    """
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    body = {"message": "refused", "type": "invalid_request_error", "code": code}
+    return openai.BadRequestError(
+        "refused", response=httpx.Response(400, request=request), body=body
+    )
+
+
 class FakeClient:
     """Plays the SDK client: hands out the given outcomes one call at a time.
 
@@ -167,6 +183,36 @@ def test_a_rule_the_schema_cant_carry_is_still_enforced(monkeypatch: pytest.Monk
     use(monkeypatch, FakeClient([response(f'{{"items": [{items}]}}')]))
     with pytest.raises(ValueError, match="at most 2"):
         call(connect(":memory:"))
+
+
+def test_an_answer_that_broke_the_schema_is_asked_for_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After Groq's json_validate_failed, the request is sent once more and its answer used."""
+    client = FakeClient(
+        [bad_request("json_validate_failed"), response('{"items": [{"name": "a"}]}')]
+    )
+    use(monkeypatch, client)
+    assert call(connect(":memory:")).items[0].name == "a"
+    assert len(client.requests) == 2
+
+
+def test_a_second_broken_answer_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two json_validate_failed in a row: the error is raised, with no third try."""
+    client = FakeClient([bad_request("json_validate_failed"), bad_request("json_validate_failed")])
+    use(monkeypatch, client)
+    with pytest.raises(openai.BadRequestError):
+        call(connect(":memory:"))
+    assert len(client.requests) == 2
+
+
+def test_any_other_400_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A refused request (e.g. an unknown model) won't fix itself, so it's raised at once."""
+    client = FakeClient([bad_request("model_not_found")])
+    use(monkeypatch, client)
+    with pytest.raises(openai.BadRequestError):
+        call(connect(":memory:"))
+    assert len(client.requests) == 1
 
 
 def test_a_429_waits_as_asked_then_retries(

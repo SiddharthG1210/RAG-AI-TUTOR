@@ -34,7 +34,9 @@ from tutor.quotes import quote_in_passage
 
 QUESTION_REASONING = "low"
 """How hard gpt-oss thinks before writing. Its thinking tokens count toward
-the free-tier limits, and writing questions from a given passage needs little."""
+the free-tier limits, and writing questions from a given passage needs little.
+"medium" (about 2,700 tokens a call instead of 1,600) was tried against
+questions that say "according to the passage" and didn't reduce them."""
 
 
 class Question(BaseModel):

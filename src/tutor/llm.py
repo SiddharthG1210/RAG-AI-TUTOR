@@ -9,9 +9,13 @@ talks to it once ``base_url`` points at Groq. Switching provider means editing
 
 **Structured output.** The request carries a JSON Schema built from a Pydantic
 model (such as ``QuestionSet``), with ``strict: true``. In strict mode Groq
-constrains the model's sampling so its answer always fits the schema: every
-field present, nothing extra. Pydantic then turns that JSON into a Python
-object and checks the rules the schema can't carry, such as "exactly 3".
+checks the model's answer against the schema (every field present, nothing
+extra) before sending it. For gpt-oss that check can fail: the check script
+once got a question with no ``quote``, and Groq answered HTTP 400
+``json_validate_failed`` instead of the JSON. So the call is sent once more
+after such a failure, and a second failure raises. Pydantic then turns the
+JSON into a Python object and checks the rules the schema can't carry, such
+as "exactly 3".
 
 **The free tier.** Each call's tokens are logged in the ``llm_calls`` table. On
 HTTP 429 ("too many requests") the call waits as long as Groq's ``retry-after``
@@ -184,6 +188,34 @@ def _create(**request: Any) -> Any:
         raise FreeLimitReached("Groq's free limit was reached again after waiting.") from error
 
 
+def _create_valid(**request: Any) -> Any:
+    """Send one chat-completion request, sending it once more if its JSON broke the schema.
+
+    Groq checks a strict-mode answer against the schema and, when it doesn't
+    fit, answers HTTP 400 with the code ``json_validate_failed`` instead. The
+    model samples its answer, so a second try usually fits. The failed try's
+    tokens can't be logged: the error carries no token counts.
+
+    Args:
+        **request: The request's fields: model, messages, response_format, ….
+
+    Returns:
+        The SDK's response object.
+
+    Raises:
+        openai.BadRequestError: If the second try breaks the schema too, or
+            the request was refused for any other reason.
+    """
+    try:
+        return _create(**request)
+    except openai.BadRequestError as error:
+        # Any other 400 (a bad model name, a malformed schema) won't fix
+        # itself on a second try, so it's raised at once.
+        if error.code != "json_validate_failed":
+            raise
+    return _create(**request)
+
+
 def complete_structured[T: BaseModel](
     conn: sqlite3.Connection,
     messages: list[dict[str, str]],
@@ -214,6 +246,8 @@ def complete_structured[T: BaseModel](
 
     Raises:
         FreeLimitReached: If Groq's free-tier limit stops the call.
+        openai.BadRequestError: If the answer breaks the schema twice in a
+            row (``json_validate_failed``), or Groq refuses the request.
         ValueError: If the answer comes back empty.
         pydantic.ValidationError: If the answer breaks a rule of the schema.
     """
@@ -222,7 +256,7 @@ def complete_structured[T: BaseModel](
         "json_schema": {"name": schema.__name__, "schema": strict_schema(schema), "strict": True},
     }
     start = time.perf_counter()
-    response = _create(
+    response = _create_valid(
         model=model,
         messages=messages,
         response_format=response_format,

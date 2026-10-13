@@ -18,12 +18,21 @@ when" (PLAN.md › Roadmap › M1):
   quote by adding a "not" after its first verb like "is" or "can", or, when it
   has none, by swapping its longest word.
 
+It also counts the questions that mention "the passage", "the text" or "the
+author". That isn't an M1 goal, but the learner never sees the passage, so
+such a question reads oddly in a review; the prompt asks the LLM not to.
+
 The copy is deleted at the end, so the real ``data/tutor.db`` keeps its pools
 exactly as they were. Run it again after any change to the prompt, the schema,
-the model or the quote check, and compare.
+the model or the quote check, and compare. To try another model without
+editing ``.env``:
+
+    uv run python scripts/check_questions.py --model qwen/qwen3.8-27b
 """
 
 import argparse
+import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -32,7 +41,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+import openai
+from pydantic import ValidationError
+
 from tutor import questions
+from tutor.config import get_settings
 from tutor.db import connect, list_passages
 from tutor.llm import complete_structured
 from tutor.questions import QuestionSet, write_questions
@@ -52,6 +65,11 @@ PAUSE_SECONDS = 20.0
 minute, and one call uses about 1,700, so back-to-back calls hit the limit
 after four or five; one call every 20 seconds stays under it."""
 
+MENTIONS_SOURCE = re.compile(r"\b(the|this) (passage|text|author)\b", re.IGNORECASE)
+"""Wording that points at a passage the learner can't see. "the" or "this" is
+required so that topics like "speech-to-text" don't count. ``\\b`` is a word
+boundary, so "authors" or "context" don't match either."""
+
 AUXILIARIES = {"is", "are", "was", "were", "can", "could", "will", "would", "should", "does", "do"}
 """Verbs a "not" can follow, turning a sentence into its opposite."""
 
@@ -64,6 +82,9 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description="Check the question writer on real passages.")
     parser.add_argument("--db", type=Path, default=Path("data/tutor.db"), help="the database")
+    parser.add_argument(
+        "--model", help="the question model to try, e.g. qwen/qwen3.8-27b; .env's if not given"
+    )
     return parser.parse_args()
 
 
@@ -109,6 +130,11 @@ def main() -> None:
     # Windows terminals sometimes can't print curly quotes in their default encoding.
     sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
+    if args.model:
+        # pydantic-settings reads environment variables before .env, so this
+        # overrides QUESTION_MODEL for this run only. It must happen before
+        # anything calls get_settings(), which reads the settings once.
+        os.environ["QUESTION_MODEL"] = args.model
 
     # write_questions() returns only the kept questions. To print the dropped
     # ones too, the script swaps the LLM call inside tutor.questions for a
@@ -135,26 +161,49 @@ def main() -> None:
             # The token log's last id before this run, so the totals count only its calls.
             before = conn.execute("SELECT COALESCE(MAX(id), 0) FROM llm_calls").fetchone()[0]
             picked = spread(list_passages(conn), PASSAGES)
+            print(f"Model: {get_settings().question_model}\n")
             written = 0
+            mentions_source = 0
+            failed_calls = 0
             kept_quotes: list[tuple[str, str]] = []  # (quote, its passage's text)
 
             for i, passage in enumerate(picked):
                 if i > 0:
                     time.sleep(PAUSE_SECONDS)  # stay under the tokens-per-minute limit
                 print(f"## {passage['number']} {passage['title']}, passage {passage['position']}\n")
-                kept = write_questions(conn, passage)
+                try:
+                    kept = write_questions(conn, passage)
+                except (ValidationError, openai.BadRequestError) as error:
+                    # The answer broke the schema: e.g. 1 question instead of
+                    # exactly 3 (Pydantic), or Groq's json_validate_failed on
+                    # both tries. write_questions() fails loudly, as it should;
+                    # the script notes it and goes on with the next passage.
+                    failed_calls += 1
+                    first_line = str(error).splitlines()[0]
+                    print(f"  CALL FAILED: {type(error).__name__}: {first_line}\n")
+                    continue
                 kept_quotes += [(q.quote, passage["text"]) for q in kept]
                 for q in answers[-1].questions:
                     written += 1
                     mark = "kept   " if q in kept else "DROPPED"
+                    # re.search finds the wording anywhere in the question.
+                    if MENTIONS_SOURCE.search(q.question):
+                        mentions_source += 1
+                        mark += " (mentions the passage)"
                     print(f"  {mark} Q: {q.question}")
                     for point in q.key_points:
                         print(f"            - {point}")
                     print(f"            quote: {q.quote!r}\n")
 
             passed = len(kept_quotes)
+            print(f"Calls whose answer broke the schema: {failed_calls} of {len(picked)}.")
             print(
                 f"Quote check: {passed} of {written} passed ({passed / written:.0%}; M1 needs 90%)."
+            )
+
+            print(
+                f"Questions that mention the passage, the text or the author: "
+                f"{mentions_source} of {written}."
             )
 
             made_up_rejected = not any(quote_in_passage(MADE_UP, p["text"]) for p in picked)
