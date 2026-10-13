@@ -23,10 +23,16 @@ How to work in this repo. Claude Code loads this file into every session.
 ## Who writes what
 This overrides the `study-tutor-teaching` skill's "Claude writes most of the code" and PLAN.md's "Claude writes" column wherever they disagree.
 - **At the start of each concept,** list its pieces and mark each one "user" or "Claude". The user can move any piece.
-- **AI, ML and RAG logic is the user's:** chunking, embeddings and search, prompts and schemas, the quote check, grading, the graph's state and routing, tool calls, FSRS updates, mistake patterns. The user writes it one small function at a time.
-- **Reason out the need before the code, and keep asking at every step.** Before each piece, and before each step inside it, ask the user one question at a time: what's the next move, and what can we do about it (which idea, Python feature or library could do it). Other useful questions: what data do we have, what would go wrong if we did X. Ask before the answer is in view: write a skeleton's comment for a step only after asking about that step. Help when the user is stuck. Name a library, import or function only when the reasoning reaches the gap it fills, and say what it does and why. Use a quick run only when reasoning can't settle a question.
-- **For each user piece:** explain what it must do and why, give a skeleton (signature, docstring, one comment per step), and wait. Then review it, and give hints instead of fixes. Keep giving skeletons: the user decided that starting a piece from its goal alone takes too long.
-- **Plumbing is Claude's:** database tables and SQL, command-line scripts, config, the web layer and tests. Claude writes it in small pieces too, with a few lines on what each does.
+- **AI, ML and RAG logic is the user's, and so is the wiring that connects it:** chunking, embeddings and search, prompts and schemas, the quote check, grading, the graph's state and routing, tool calls, FSRS updates, mistake patterns, plus the code that calls the pieces in order (such as the steps inside `search()`). The user builds single functions easily but loses track of how they fit together, and writing the wiring is how that's learned.
+- **Build each concept chain first, then fill the links:**
+  1. **Ends first.** Agree on what goes in and what must come out, with a real example: `"gradient descent"` → 3 passages.
+  2. **The chain.** The user writes the middle as a list of data shapes, working backwards from the end and forwards from the start, with one function per arrow. Claude corrects it, helps when the user is stuck, and names a library or function only where a link needs one, saying what it does and why.
+  3. **A skeleton for the whole chain at once:** every link as an empty function (signature, docstring, one comment per step), plus the function that wires them. Keep giving skeletons: the user decided that starting from the goal alone takes too long.
+  4. **Fill the links.** The user writes the AI/ML links and the wiring, and Claude writes the plumbing links. Claude reviews the user's code with hints instead of fixes.
+  5. **Run one real example through,** printing what each link hands to the next, so a wrong link shows where the data stops looking right.
+- **Questions go at the chain, not at every step.** The chain answers "what's the next move?" for every step at once. Ask only where a link isn't obvious from the chain, or what would go wrong if we did X. Use a quick run only when reasoning can't settle a question.
+- **After each piece,** show where it sits in the chain: what feeds it and what it feeds.
+- **Plumbing is Claude's:** database tables and SQL, command-line arguments and printing, config, the web layer and tests. Claude writes it in small pieces too, with a few lines on what each does.
 - **A concept that's mostly plumbing,** such as the M1 concept "Turning the PDF into prose with page numbers": Claude writes all of it and gives its RAG takeaway in one line, with no explain-back.
 
 ## Git
@@ -47,6 +53,7 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Ingest a chapter (saves its topics and passages to `data/tutor.db` and embeds the passages) | `uv run python scripts/ingest.py --chapter 1` |
 | Embed every saved passage again, after changing the header or the embedding model | `uv run python scripts/ingest.py --embed` |
 | Check search on chapter 1 (test queries, off-topic ones, the scores for the cut-off) | `uv run python scripts/check_retrieval.py` |
+| Check the question writer on 10 passages, on a copy of the database (the quote-check pass rate; a made-up quote and one-word changes rejected). Makes 10 real LLM calls | `uv run python scripts/check_questions.py` |
 | Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
