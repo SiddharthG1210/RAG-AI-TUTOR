@@ -96,3 +96,21 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - Key points must come only from the passage. An extra true point would mark me down for something the passage never taught, again at every review.
 - Strict mode isn't a guarantee on gpt-oss: Groq can reject an answer that breaks the schema, so the wrapper retries once and then fails loudly.
 - Small samples mislead. One experiment said reasoning "medium" fixed "according to the passage" (1 of 9 questions); the full run of 30 didn't confirm it.
+
+### Grading grounded in the passage (2026-10-14)
+**Did:** first asked Claude for the big picture of the project, because I couldn't see where anything lived. Then planned grading's two ends and its chain with Claude, and asked Claude to build it ("just build it"). Then went through the finished code line by line, renamed two things so the names make sense to me, and merged it.
+**Learned:**
+- The project is separate machines (loading a chapter, search, question writing, now grading) that share one database file. Nothing hands one machine's output to the next yet. Joining them is the study loop's job.
+- Files in `src/tutor/` are tools: running one does nothing, because it only defines functions and classes. Files in `scripts/` are starters that call the tools. Only starters end with `if __name__ == "__main__":`.
+- The grader doesn't care where my answer comes from. It's a plain string: today from a list in `scripts/regrade.py`, later from the terminal and then from a text box on the page. That's why the grader can be built before the text box exists.
+- Test scripts work on a copy of the database, so test data never lands in my real question pools or attempts.
+- An LLM writes one token at a time, and each token is chosen by reading all the text before it, including what it has already written. It has no other memory. So whatever comes first in the answer can shape what comes after, never the other way round. The `Grade` form puts the quotes first and the verdict last, so the verdict is decided with the evidence already written.
+- A quote proves only one thing: that this exact text is in the passage. It catches the LLM making up book text, and it shows me the line so I can judge for myself. It doesn't prove the question or the grade really follows from that line.
+- Key points only say what's missing. To tell what's wrong, or what's an extra, the grader needs the whole passage. For example, "the probability is the only way to show uncertainty" is wrong according to the passage, but no key point mentions uncertainty.
+- The same-answer check is a plain text comparison after tidying (lowercase, spaces), done in SQL before any LLM call. It only finds answers that are already saved, so a second click while the first answer is still being graded would reach the LLM too. That's why the page will disable Submit while it grades (now in PLAN.md).
+- A database cell holds one value, so the lists in a grade are stored as one piece of JSON text (`grade_details`), and the verdict gets its own column because later code searches by it. `model_dump_json()` turns the `Grade` into that text, and `model_validate_json()` turns it back into a `Grade`.
+- A function hands back one thing. `GradedAnswer` is one object carrying four named values (attempt id, grade, supported, reused). A class is the blueprint; calling it builds one object; `return` hands back that object, and the caller reads `result.supported`. Names can't be mixed up the way positions in a tuple can.
+- Naming matters: `Grade` is the whole form, and `verdict` is the one word in it (correct, partly correct or incorrect).
+- `tests/test_grading.py` checks the code with a fake LLM, on every pull request. `scripts/regrade.py` checks the real LLM's judgement, and I run it by hand after changing the prompt.
+- My own idea: after a break, "You choose" could give me nothing but overdue reviews, because reviews come before new passages. Many spaced-repetition apps cap reviews per day, so that's now a decision to make before M4 ("Daily review cap" in PLAN.md).
+- `git add -A` stages every change at once. It's safe after `git status` shows exactly what "every" means, because `.gitignore` keeps `.env`, `data/` and `scratch/` out.
