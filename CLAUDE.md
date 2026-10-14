@@ -54,6 +54,7 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Embed every saved passage again, after changing the header or the embedding model | `uv run python scripts/ingest.py --embed` |
 | Check search on chapter 1 (test queries, off-topic ones, the scores for the cut-off) | `uv run python scripts/check_retrieval.py` |
 | Check the question writer on 10 passages, on a copy of the database (the quote-check pass rate; a made-up quote and one-word changes rejected). Makes 10 real LLM calls | `uv run python scripts/check_questions.py` |
+| Re-grade the five test answers on a copy of the database, after any change to `prompts/grader.md`, the `Grade` form or the grading model (each grade against the one it should get; a repeated answer reused, a one-word change graded fresh). Makes 6 real LLM calls | `uv run python scripts/regrade.py` |
 | Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 

@@ -115,9 +115,9 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 13 October 2026 (after the question writer was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 14 October 2026 (after grading was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
-    <p class="lede">Every file and every function, in plain words. Start with the three chains to see which functions call which, then look anything up in the tree.</p>
+    <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
       <div class="legend" aria-label="Legend">
         <span><i class="dot fn"></i>function: does a job</span>
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after pull request #7. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the grading pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -186,6 +186,20 @@ const CHAINS = [
       ["quote_in_passage", "keeps only questions whose quote is really in the passage"],
       ["save_questions", "the kept ones (0 to 3) → the passage’s pool"]
     ]
+  },
+  {
+    title: "Grading an answer",
+    when: "When you answer a question (for now, from scripts/regrade.py)",
+    steps: [
+      ["grade_answer", "starts here with a question row and your typed answer"],
+      ["get_passage", "the question’s own passage, by the id stored with the question"],
+      ["tidy_answer", "your answer → lowercase, extra spaces removed"],
+      ["load_prompt", "the grader’s instructions + their version"],
+      ["find_attempt", "this exact answer graded before? → reuse that grade and stop"],
+      ["complete_structured", "one LLM call → a Grade: quotes, missing, wrong, extras, verdict"],
+      ["quote_in_passage", "every quote really in the passage? → supported or not"],
+      ["save_attempt", "the graded answer → the attempts table"]
+    ]
   }
 ];
 
@@ -206,7 +220,9 @@ const TREE = [
         { kind: "fn", sig: "list_passages(conn)", say: "Gives back every passage, in book order." },
         { kind: "fn", sig: "save_questions(conn, passage_id, questions, prompt_version)", say: "Adds checked questions to a passage’s pool, with the version of the prompt that wrote them." },
         { kind: "fn", sig: "list_questions(conn, passage_id)", say: "Gives back every question ever written for a passage, used or not." },
-        { kind: "fn", sig: "log_llm_call(conn, model, purpose, …)", say: "Writes down one LLM call: which model, what for, how many tokens, how many seconds." }
+        { kind: "fn", sig: "log_llm_call(conn, model, purpose, …)", say: "Writes down one LLM call: which model, what for, how many tokens, how many seconds." },
+        { kind: "fn", sig: "save_attempt(conn, question_id, session_id, answer, …)", say: "Saves one graded answer: the answer, its grade, whether its quotes checked out, and the prompt version, model and settings." },
+        { kind: "fn", sig: "find_attempt(conn, question_id, tidied_answer, …)", say: "The same-answer check: finds an earlier supported attempt with exactly this answer, prompt version, model and settings." }
       ]},
       { name: "llm.py", what: "The only door to the LLM: loads prompts, makes the call, copes with limits, logs tokens.", items: [
         { kind: "shape", sig: "FreeLimitReached", say: "The error raised when Groq’s free limit is used up and waiting didn’t help." },
@@ -228,6 +244,12 @@ const TREE = [
         { kind: "shape", sig: "Question", say: "One question, the key points a good answer needs, and the quote it’s based on." },
         { kind: "shape", sig: "QuestionSet", say: "What one LLM call must return: exactly 3 Questions." },
         { kind: "fn", sig: "write_questions(conn, passage)", say: "Builds the messages, makes one LLM call, keeps the questions whose quote checks out, and saves them." }
+      ]},
+      { name: "grading.py", what: "Grades a typed answer against its question’s passage, and reuses the grade for a repeated answer.", items: [
+        { kind: "shape", sig: "Grade", say: "What the grader LLM must return, in this order: quotes, missing, wrong, extras, and the verdict last." },
+        { kind: "shape", sig: "GradedAnswer", say: "What grading hands back: the grade, whether its quotes checked out, and whether it was reused." },
+        { kind: "fn", sig: "tidy_answer(answer)", say: "Lowercases an answer and tidies its spaces, for the same-answer check." },
+        { kind: "fn", sig: "grade_answer(conn, question, answer, session_id)", say: "Reuses the grade of a repeated answer, or makes one LLM call, checks the grade’s quotes, and saves the attempt." }
       ]}
     ]
   },
@@ -294,7 +316,8 @@ const TREE = [
   {
     folder: "prompts/", note: "instructions for the LLM, kept out of the code",
     files: [
-      { name: "question_writer.md", what: "What the question-writing LLM is told on every call: 3 questions, only from the passage, key points from the passage, quotes copied as whole sentences.", items: [] }
+      { name: "question_writer.md", what: "What the question-writing LLM is told on every call: 3 questions, only from the passage, key points from the passage, quotes copied as whole sentences.", items: [] },
+      { name: "grader.md", what: "What the grading LLM is told on every call: judge only from the passage, fill in quotes, missing, wrong and extras first, then decide the verdict.", items: [] }
     ]
   },
   {
@@ -319,6 +342,16 @@ const TREE = [
         { kind: "fn", sig: "main()", say: "Writes questions for 10 passages and checks M1’s goals: 90% of quotes pass, fake and changed quotes fail." },
         { kind: "fn", sig: "spread(passages, count)", say: "Picks passages spread evenly across the chapter, the same ones every run." },
         { kind: "fn", sig: "change_one_word(quote)", say: "Makes a real quote say something else by changing one word." },
+        { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
+      ]},
+      { name: "regrade.py", what: "Re-grades the five test answers on a copy of the database, and checks that a repeated answer is reused.", items: [
+        { kind: "shape", sig: "RegressionAnswer", say: "One test answer and the grade it should get." },
+        { kind: "shape", sig: "RegressionQuestion", say: "A question from a real passage, with its test answers." },
+        { kind: "fn", sig: "main()", say: "Grades every test answer, compares each grade with the expected one, then sends one answer again, and once with one word changed." },
+        { kind: "fn", sig: "add_question(conn, item)", say: "Saves a test question into the copy, so it can be graded like a real one." },
+        { kind: "fn", sig: "show(result, passage_text)", say: "Prints a grade’s quotes, missing, wrong and extras, marking any quote not in the passage." },
+        { kind: "fn", sig: "calls_since(conn, after_id)", say: "Counts the LLM calls and tokens since a point in the token log." },
+        { kind: "fn", sig: "last_call_id(conn)", say: "Where the token log ends right now." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
       ]}
     ]
