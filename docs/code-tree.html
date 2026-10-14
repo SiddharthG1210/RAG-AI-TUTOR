@@ -1,0 +1,434 @@
+<title>Study Tutor Code Tree</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a study sheet on graph paper, like the Study Tutor Map. Three call chains on top,
+   then the repo as a folder → file → function tree with drawn branch lines. */
+:root{
+  --paper:#F3F5F8; --grid:#E5EAF1; --card:#FFFFFF;
+  --ink:#1A2433; --ink-2:#4A5668; --ink-3:#647085; --rule:#D3DAE4;
+  --folder:#8F5D0E; --fn:#2A5BA3; --shape:#AE2F5B; --helper:#647085;
+  --hl:rgba(255,210,0,.38); --hl-mark:rgba(255,210,0,.55);
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --f-hand:"Caveat","Segoe Print","Bradley Hand",cursive;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0F131A; --grid:#171E29; --card:#161C26;
+    --ink:#E5EAF1; --ink-2:#A7B2C2; --ink-3:#8590A3; --rule:#2A3341;
+    --folder:#E2AA54; --fn:#84ABF2; --shape:#F07BA4; --helper:#8590A3;
+    --hl:rgba(255,210,0,.22); --hl-mark:rgba(255,210,0,.32);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0F131A; --grid:#171E29; --card:#161C26;
+  --ink:#E5EAF1; --ink-2:#A7B2C2; --ink-3:#8590A3; --rule:#2A3341;
+  --folder:#E2AA54; --fn:#84ABF2; --shape:#F07BA4; --helper:#8590A3;
+  --hl:rgba(255,210,0,.22); --hl-mark:rgba(255,210,0,.32);
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  background-color:var(--paper);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+  background-size:24px 24px;
+  color:var(--ink); font-family:var(--f-body); font-size:14.5px; line-height:1.5;
+}
+.wrap{max-width:1100px;margin:0 auto;padding-inline:16px;padding-block:20px 64px}
+@media (min-width:760px){.wrap{padding-inline:28px}}
+code,.mono{font-family:var(--f-mono);font-size:.92em}
+
+header{padding-bottom:16px;border-bottom:2px solid var(--ink)}
+.eyebrow{margin:0 0 8px;font-family:var(--f-mono);font-size:12px;color:var(--ink-3)}
+h1{margin:0;font-family:var(--f-display);font-weight:700;font-size:clamp(34px,5vw,54px);line-height:.98;letter-spacing:-.01em;text-wrap:balance}
+h1 .mark{padding-inline:.08em;background:linear-gradient(176deg,transparent 52%,var(--hl-mark) 53%,var(--hl-mark) 90%,transparent 91%)}
+.lede{max-width:64ch;margin:12px 0 0;color:var(--ink-2);font-size:15.5px}
+
+.tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;margin-top:14px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.dot.fn{background:var(--fn)} .dot.shape{background:var(--shape)} .dot.helper{background:transparent;border:1.5px solid var(--helper)}
+.find{display:flex;align-items:center;gap:8px;margin-left:auto}
+.find label{font-size:13px;color:var(--ink-3)}
+.find input{width:min(240px,60vw);padding:6px 10px;border:1px solid var(--rule);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;font-size:13.5px}
+.find input:focus-visible{outline:2px solid var(--fn);outline-offset:1px}
+
+h2{margin:30px 0 4px;font-family:var(--f-display);font-weight:600;font-size:13px;letter-spacing:.09em;text-transform:uppercase}
+.sub{margin:0 0 12px;font-size:13px;color:var(--ink-3)}
+
+/* chains */
+.chains{display:grid;gap:14px}
+@media (min-width:900px){.chains{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.chain{min-width:0;padding:14px 14px 12px;border:1px solid var(--rule);border-radius:12px;background:var(--card)}
+.chain h3{margin:0;font-family:var(--f-display);font-weight:700;font-size:19px;line-height:1.15}
+.chain .when{margin:2px 0 10px;font-size:12.5px;color:var(--ink-3)}
+.chain ol{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.chain li{position:relative;padding:0 0 10px 22px}
+.chain li::before{content:"";position:absolute;left:6px;top:7px;width:8px;height:8px;border-radius:50%;background:var(--fn)}
+.chain li:not(:last-child)::after{content:"";position:absolute;left:9.5px;top:17px;bottom:0;width:1px;background:var(--rule)}
+.chain .gives{display:block;font-size:12.5px;color:var(--ink-2)}
+.chain .gives b{font-weight:500;color:var(--ink)}
+.jump{padding:0;border:0;background:none;color:var(--fn);font-family:var(--f-mono);font-size:13px;font-weight:500;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+.jump:hover{text-decoration:underline}
+.jump:focus-visible{outline:2px solid var(--fn);outline-offset:2px;border-radius:3px}
+.hand{font-family:var(--f-hand);font-weight:700;font-size:19px;line-height:1;color:var(--shape)}
+
+/* tree */
+.tree{display:grid;gap:14px}
+.folder{min-width:0;padding:12px 14px 6px;border:1px solid var(--rule);border-radius:12px;background:var(--card)}
+.folder > .fname{margin:0 0 4px;font-family:var(--f-mono);font-weight:500;font-size:14px;color:var(--folder)}
+.folder > .fname small{margin-left:8px;font-family:var(--f-body);font-weight:400;font-size:12.5px;color:var(--ink-3)}
+.file{position:relative;margin-left:8px;padding:6px 0 6px 18px;border-left:1px solid var(--rule)}
+.file:last-child{border-left-color:transparent}
+.file::before{content:"";position:absolute;left:0;top:0;height:19px;width:12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);border-bottom-left-radius:6px}
+.file:last-child::before{left:-1px}
+.file > .head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}
+.file > .head .name{font-family:var(--f-mono);font-weight:500;font-size:14.5px}
+.file > .head .what{flex:1 1 260px;min-width:0;color:var(--ink-2)}
+.items{list-style:none;margin:4px 0 2px;padding:0}
+.item{position:relative;display:grid;grid-template-columns:minmax(0,15.5em) minmax(0,1fr);gap:2px 14px;margin-left:4px;padding:4px 6px 4px 20px;border-radius:6px;scroll-margin:90px}
+.item::before{content:"";position:absolute;left:0;top:0;height:15px;width:12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);border-bottom-left-radius:5px}
+.item:not(:last-child)::after{content:"";position:absolute;left:0;top:15px;bottom:-4px;border-left:1px solid var(--rule)}
+@media (max-width:640px){.item{grid-template-columns:minmax(0,1fr)}}
+.item .sig{font-family:var(--f-mono);font-size:13px;font-weight:500;color:var(--fn);overflow-wrap:anywhere}
+.item.shape .sig{color:var(--shape)}
+.item.helper .sig{color:var(--helper);font-weight:400}
+.item .say{min-width:0;color:var(--ink)}
+.item.helper .say{color:var(--ink-2)}
+.item .tag{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid var(--rule);border-radius:4px;font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);vertical-align:1px}
+.subitems{list-style:none;grid-column:1 / -1;margin:2px 0 0 14px;padding:0}
+.subitems li{display:grid;grid-template-columns:minmax(0,13.5em) minmax(0,1fr);gap:2px 14px;padding:2px 0;font-size:13.5px}
+@media (max-width:640px){.subitems li{grid-template-columns:minmax(0,1fr)}}
+.subitems .sig{font-family:var(--f-mono);font-size:12.5px;color:var(--shape)}
+.item.flash{background:var(--hl)}
+.hidden-by-find{display:none}
+.nomatch{margin:8px 0 0;font-size:13px;color:var(--ink-3)}
+
+footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-size:12.5px;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 14 October 2026 (after grading was merged)</p>
+    <h1>Study Tutor <span class="mark">Code Tree</span></h1>
+    <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
+    <div class="tools">
+      <div class="legend" aria-label="Legend">
+        <span><i class="dot fn"></i>function: does a job</span>
+        <span><i class="dot shape"></i>data shape (a class): holds values</span>
+        <span><i class="dot helper"></i>helper: name starts with <code>_</code>, used only inside its own file</span>
+      </div>
+      <div class="find">
+        <label for="find">Find</label>
+        <input id="find" type="search" placeholder="e.g. quote, embed, save" autocomplete="off">
+      </div>
+    </div>
+  </header>
+
+  <section aria-labelledby="chainsTitle">
+    <h2 id="chainsTitle">How the pieces connect</h2>
+    <p class="sub">Each chain runs top to bottom. Click a function to find it in the tree.</p>
+    <div class="chains" id="chains"></div>
+  </section>
+
+  <section aria-labelledby="treeTitle">
+    <h2 id="treeTitle">Every file</h2>
+    <p class="sub">Folders, then files, then what is inside each file. Tests are left out: there is one test file per file here.</p>
+    <div class="tree" id="tree"></div>
+    <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
+  </section>
+
+  <footer>Drawn from the code on <code>main</code> after the grading pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+// The three chains: what happens, in order, with what each step hands to the next.
+const CHAINS = [
+  {
+    title: "Loading a chapter",
+    when: "Once per chapter: uv run python scripts/ingest.py --chapter 1",
+    steps: [
+      ["extract_chapter", "the PDF → a Chapter: its topics and its prose paragraphs"],
+      ["chunk_chapter", "the paragraphs → passages of 120–350 words per topic"],
+      ["save_chapter", "topics and passages → rows in tutor.db"],
+      ["embed_passages", "each saved passage → a vector of 384 numbers"],
+      ["save_embeddings", "the vectors → the embeddings table"]
+    ]
+  },
+  {
+    title: "Searching by meaning",
+    when: "When you type a topic, e.g. “gradient descent”",
+    steps: [
+      ["search", "starts here with your typed words"],
+      ["embed_query", "your words → one vector"],
+      ["load_embeddings", "every passage’s vector, from the database"],
+      ["cosine_similarity", "one score per passage: how close in meaning"],
+      ["get_passage", "the best few passages above the cut-off → back to you"]
+    ]
+  },
+  {
+    title: "Writing questions",
+    when: "When a passage’s pool of questions is empty",
+    steps: [
+      ["write_questions", "starts here with one passage row"],
+      ["load_prompt", "the instructions file + its version"],
+      ["list_questions", "earlier questions, so a refill doesn’t repeat them"],
+      ["complete_structured", "one LLM call → a QuestionSet: 3 questions"],
+      ["quote_in_passage", "keeps only questions whose quote is really in the passage"],
+      ["save_questions", "the kept ones (0 to 3) → the passage’s pool"]
+    ]
+  },
+  {
+    title: "Grading an answer",
+    when: "When you answer a question (for now, from scripts/regrade.py)",
+    steps: [
+      ["grade_answer", "starts here with a question row and your typed answer"],
+      ["get_passage", "the question’s own passage, by the id stored with the question"],
+      ["tidy_answer", "your answer → lowercase, extra spaces removed"],
+      ["load_prompt", "the grader’s instructions + their version"],
+      ["find_attempt", "this exact answer graded before? → reuse that grade and stop"],
+      ["complete_structured", "one LLM call → a Grade: quotes, missing, wrong, extras, verdict"],
+      ["quote_in_passage", "every quote really in the passage? → supported or not"],
+      ["save_attempt", "the graded answer → the attempts table"]
+    ]
+  }
+];
+
+// The tree. kind: "fn" (function), "shape" (class), "helper" (private function).
+const TREE = [
+  {
+    folder: "src/tutor/", note: "the tutor itself",
+    files: [
+      { name: "config.py", what: "Reads your settings from the .env file.", items: [
+        { kind: "shape", sig: "Settings", say: "The list of settings: Groq’s web address, your key, which model writes questions and which one grades." },
+        { kind: "fn", sig: "get_settings()", say: "Reads the settings once and hands back that same copy every time after." }
+      ]},
+      { name: "db.py", what: "The database: makes the tables, and saves and reads rows with plain SQL.", items: [
+        { kind: "fn", sig: "connect(path)", say: "Opens the database file and makes any table that is missing." },
+        { kind: "fn", sig: "save_chapter(conn, topics, passages)", say: "Saves a chapter’s topics and passages in one go: all of them or none." },
+        { kind: "fn", sig: "list_topics(conn)", say: "Gives back every topic, in book order." },
+        { kind: "fn", sig: "get_passage(conn, passage_id)", say: "Gives back one passage, with its section number and title." },
+        { kind: "fn", sig: "list_passages(conn)", say: "Gives back every passage, in book order." },
+        { kind: "fn", sig: "save_questions(conn, passage_id, questions, prompt_version)", say: "Adds checked questions to a passage’s pool, with the version of the prompt that wrote them." },
+        { kind: "fn", sig: "list_questions(conn, passage_id)", say: "Gives back every question ever written for a passage, used or not." },
+        { kind: "fn", sig: "log_llm_call(conn, model, purpose, …)", say: "Writes down one LLM call: which model, what for, how many tokens, how many seconds." },
+        { kind: "fn", sig: "save_attempt(conn, question_id, session_id, answer, …)", say: "Saves one graded answer: the answer, its grade, whether its quotes checked out, and the prompt version, model and settings." },
+        { kind: "fn", sig: "find_attempt(conn, question_id, tidied_answer, …)", say: "The same-answer check: finds an earlier supported attempt with exactly this answer, prompt version, model and settings." }
+      ]},
+      { name: "llm.py", what: "The only door to the LLM: loads prompts, makes the call, copes with limits, logs tokens.", items: [
+        { kind: "shape", sig: "FreeLimitReached", say: "The error raised when Groq’s free limit is used up and waiting didn’t help." },
+        { kind: "shape", sig: "Prompt", say: "A prompt file’s text, plus its version: a short fingerprint that changes whenever the text does." },
+        { kind: "fn", sig: "load_prompt(name)", say: "Reads a prompt file from prompts/ and fingerprints it." },
+        { kind: "fn", sig: "strict_schema(model)", say: "Turns a Pydantic class into the JSON shape Groq’s strict mode accepts." },
+        { kind: "fn", sig: "complete_structured(conn, messages, schema, …)", say: "The call everything uses: send the messages and the shape, log the tokens, and hand the answer back as a Python object." },
+        { kind: "helper", sig: "_client()", say: "Makes the connection to Groq once and reuses it." },
+        { kind: "helper", sig: "_make_strict(schema)", say: "Fixes up the shape: every field required, no extra fields, drops rules Groq can’t take (like “exactly 3”)." },
+        { kind: "helper", sig: "_retry_after(error)", say: "Reads how long Groq says to wait after a “too many requests” error." },
+        { kind: "helper", sig: "_create(…)", say: "Sends the request. After “too many requests”, waits as told and tries once more." },
+        { kind: "helper", sig: "_create_valid(…)", say: "Sends the request. If the answer broke the shape, asks once more." }
+      ]},
+      { name: "quotes.py", what: "The quote check: is the LLM’s quote really in the passage?", items: [
+        { kind: "fn", sig: "normalize(text)", say: "Tidies a text so harmless differences don’t count: lowercase, no quote marks, dashes evened out, spaces tidied." },
+        { kind: "fn", sig: "quote_in_passage(quote, passage)", say: "Tidies both, then checks the quote appears in the passage word for word, as whole words." }
+      ]},
+      { name: "questions.py", what: "Writes 3 checked questions for one passage.", items: [
+        { kind: "shape", sig: "Question", say: "One question, the key points a good answer needs, and the quote it’s based on." },
+        { kind: "shape", sig: "QuestionSet", say: "What one LLM call must return: exactly 3 Questions." },
+        { kind: "fn", sig: "write_questions(conn, passage)", say: "Builds the messages, makes one LLM call, keeps the questions whose quote checks out, and saves them." }
+      ]},
+      { name: "grading.py", what: "Grades a typed answer against its question’s passage, and reuses the grade for a repeated answer.", items: [
+        { kind: "shape", sig: "Grade", say: "What the grader LLM must return, in this order: quotes, missing, wrong, extras, and the verdict last." },
+        { kind: "shape", sig: "GradedAnswer", say: "What grading hands back: the grade, whether its quotes checked out, and whether it was reused." },
+        { kind: "fn", sig: "tidy_answer(answer)", say: "Lowercases an answer and tidies its spaces, for the same-answer check." },
+        { kind: "fn", sig: "grade_answer(conn, question, answer, session_id)", say: "Reuses the grade of a repeated answer, or makes one LLM call, checks the grade’s quotes, and saves the attempt." }
+      ]}
+    ]
+  },
+  {
+    folder: "src/tutor/ingest/", note: "turning the book into passages",
+    files: [
+      { name: "pdf.py", what: "Reads a chapter from the PDF and keeps only the prose, grouped into topics.", items: [
+        { kind: "shape", sig: "Span", say: "A piece of text in one font and size." },
+        { kind: "shape", sig: "Block", say: "One chunk of text on a page (a paragraph, a heading, a caption), made of lines of spans.", subs: [
+          [".spans", "All its spans, line by line."],
+          [".text", "Its text as one clean string: footnote numbers dropped, split words rejoined, spaces tidied."],
+          [".main_font", "The font used for most of its characters."],
+          [".max_size", "Its biggest font size."]
+        ]},
+        { kind: "shape", sig: "TocEntry", say: "One bookmark from the PDF: its level, title and page." },
+        { kind: "shape", sig: "Section", say: "A bookmark with its section number worked out, e.g. 1.3.1.2." },
+        { kind: "shape", sig: "Topic", say: "A section the tutor quizzes on: one row of the topics table." },
+        { kind: "shape", sig: "Paragraph", say: "One paragraph of prose, with its topic and its pages." },
+        { kind: "shape", sig: "Chapter", say: "Everything one chapter gives: its title, topics, paragraphs and label counts." },
+        { kind: "shape", sig: "FontUsage", say: "How one font and size is used across a chapter." },
+        { kind: "fn", sig: "read_blocks(doc, first_page, last_page)", say: "Reads every text block on some pages, top to bottom." },
+        { kind: "fn", sig: "classify_block(block)", say: "Labels a block as prose, heading, code, math, caption, header or table, from its fonts and position." },
+        { kind: "fn", sig: "number_sections(entries, chapter)", say: "Works out section numbers like 1.3.1.2 from the bookmark levels." },
+        { kind: "fn", sig: "heading_matches(text, number, title)", say: "Is this heading block the heading of that section?" },
+        { kind: "fn", sig: "split_into_topics(blocks, sections)", say: "Walks the blocks in order, starts a new topic at each heading, and keeps only the prose." },
+        { kind: "fn", sig: "read_chapter(pdf_path, chapter)", say: "Reads a chapter’s title, its numbered sections and its raw blocks." },
+        { kind: "fn", sig: "extract_chapter(pdf_path, chapter)", say: "The whole job: read the chapter, keep its topics and its prose." },
+        { kind: "fn", sig: "font_usage(blocks)", say: "Lists every font and size in a chapter, most used first." },
+        { kind: "helper", sig: "_starts_at_text_edge(block)", say: "Does the block start where normal paragraphs start?" },
+        { kind: "helper", sig: "_normalize(text)", say: "Lowercases and tidies spaces, so two titles can be compared." },
+        { kind: "helper", sig: "_find_chapter(doc, toc, chapter)", say: "Finds the chapter’s bookmark." }
+      ]},
+      { name: "chunk.py", what: "Cuts each topic into passages of 120–350 words.", items: [
+        { kind: "fn", sig: "word_count(paragraphs)", say: "Counts the words in some paragraphs." },
+        { kind: "fn", sig: "join_page_breaks(paragraphs)", say: "Glues back paragraphs that a page break cut in two." },
+        { kind: "fn", sig: "chunk_paragraphs(paragraphs)", say: "Packs whole paragraphs into passages of up to 350 words." },
+        { kind: "fn", sig: "rebalance_last(passages)", say: "If the last passage is too short, borrows paragraphs from the one before it." },
+        { kind: "fn", sig: "chunk_chapter(chapter)", say: "Does all of that for every topic in a chapter." }
+      ]}
+    ]
+  },
+  {
+    folder: "src/tutor/retrieval/", note: "finding passages by meaning",
+    files: [
+      { name: "embed.py", what: "Turns text into vectors (lists of 384 numbers) with the bge model.", items: [
+        { kind: "fn", sig: "load_model()", say: "Loads the bge model, downloading it the first time." },
+        { kind: "fn", sig: "text_to_embed(passage)", say: "The text bge reads for a passage: its section title, then its text." },
+        { kind: "fn", sig: "count_tokens(text)", say: "How many tokens bge needs for a text, since it can only read so many." },
+        { kind: "fn", sig: "embed_passages(passages)", say: "Turns passages into vectors." },
+        { kind: "fn", sig: "embed_query(query)", say: "Turns what you type into a vector, with bge’s search prefix in front." },
+        { kind: "helper", sig: "_counting_tokenizer()", say: "A copy of bge’s tokenizer that counts every token without cutting long texts short." }
+      ]},
+      { name: "store.py", what: "Saves each passage’s vector in the database and loads them back.", items: [
+        { kind: "fn", sig: "save_embeddings(conn, passage_ids, vectors, model)", say: "Saves one vector per passage, replacing any old one." },
+        { kind: "fn", sig: "embedded_ids(conn, model)", say: "Which passages already have a vector." },
+        { kind: "fn", sig: "load_embeddings(conn, model)", say: "Loads every vector, ready for search." }
+      ]},
+      { name: "search.py", what: "Finds the passages closest in meaning to what you typed.", items: [
+        { kind: "fn", sig: "cosine_similarity(a, b)", say: "How closely two vectors point the same way: 1 means the same direction." },
+        { kind: "fn", sig: "search(conn, query, k, cutoff)", say: "Turns your words into a vector, scores every passage, and returns the best k above the cut-off." }
+      ]}
+    ]
+  },
+  {
+    folder: "prompts/", note: "instructions for the LLM, kept out of the code",
+    files: [
+      { name: "question_writer.md", what: "What the question-writing LLM is told on every call: 3 questions, only from the passage, key points from the passage, quotes copied as whole sentences.", items: [] },
+      { name: "grader.md", what: "What the grading LLM is told on every call: judge only from the passage, fill in quotes, missing, wrong and extras first, then decide the verdict.", items: [] }
+    ]
+  },
+  {
+    folder: "scripts/", note: "commands you run",
+    files: [
+      { name: "ingest.py", what: "The command that loads a chapter into the database.", items: [
+        { kind: "fn", sig: "main()", say: "Runs the command: list fonts, show the passages, or save and embed a chapter." },
+        { kind: "fn", sig: "embed_saved_passages(conn, everything)", say: "Embeds the saved passages and saves their vectors." },
+        { kind: "fn", sig: "print_fonts(pdf, chapter)", say: "Prints every font and size in the chapter." },
+        { kind: "fn", sig: "print_text(chapter, passages)", say: "Prints each topic with its passages, pages and sizes." },
+        { kind: "fn", sig: "print_summary(chapter, passages)", say: "Prints one line per topic, then any passage that’s too short." },
+        { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --chapter 1." },
+        { kind: "fn", sig: "pages(passage)", say: "Writes a passage’s pages as text, e.g. “9–10”." }
+      ]},
+      { name: "check_retrieval.py", what: "Tests search with 10 typed topics and some off-topic ones.", items: [
+        { kind: "fn", sig: "main()", say: "Runs every test query and prints the ranks, the scores and what the cut-off does." },
+        { kind: "fn", sig: "tutor_says(conn, query)", say: "What the tutor would do with a query: show passages, or say the book doesn’t cover it." },
+        { kind: "fn", sig: "topics(results)", say: "Writes the results’ topics and scores as one line." },
+        { kind: "fn", sig: "parse_args()", say: "Reads the command-line options." }
+      ]},
+      { name: "check_questions.py", what: "Tests the question writer on 10 real passages, on a copy of the database.", items: [
+        { kind: "fn", sig: "main()", say: "Writes questions for 10 passages and checks M1’s goals: 90% of quotes pass, fake and changed quotes fail." },
+        { kind: "fn", sig: "spread(passages, count)", say: "Picks passages spread evenly across the chapter, the same ones every run." },
+        { kind: "fn", sig: "change_one_word(quote)", say: "Makes a real quote say something else by changing one word." },
+        { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
+      ]},
+      { name: "regrade.py", what: "Re-grades the five test answers on a copy of the database, and checks that a repeated answer is reused.", items: [
+        { kind: "shape", sig: "RegressionAnswer", say: "One test answer and the grade it should get." },
+        { kind: "shape", sig: "RegressionQuestion", say: "A question from a real passage, with its test answers." },
+        { kind: "fn", sig: "main()", say: "Grades every test answer, compares each grade with the expected one, then sends one answer again, and once with one word changed." },
+        { kind: "fn", sig: "add_question(conn, item)", say: "Saves a test question into the copy, so it can be graded like a real one." },
+        { kind: "fn", sig: "show(result, passage_text)", say: "Prints a grade’s quotes, missing, wrong and extras, marking any quote not in the passage." },
+        { kind: "fn", sig: "calls_since(conn, after_id)", say: "Counts the LLM calls and tokens since a point in the token log." },
+        { kind: "fn", sig: "last_call_id(conn)", say: "Where the token log ends right now." },
+        { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
+      ]}
+    ]
+  }
+];
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const baseName = sig => sig.replace(/\(.*$/, "").replace(/^\./, "");
+// Ids only for the names the chains point at; scripts reuse names like main(), so they get none.
+const idFor = (folder, sig) => folder.startsWith("src/") ? "fn-" + baseName(sig) : null;
+
+function renderChains() {
+  document.getElementById("chains").innerHTML = CHAINS.map(c =>
+    `<article class="chain"><h3>${esc(c.title)}</h3><p class="when">${esc(c.when)}</p><ol>` +
+    c.steps.map(([name, gives]) =>
+      `<li><button type="button" class="jump" data-target="fn-${esc(name)}">${esc(name)}()</button>` +
+      `<span class="gives">${esc(gives)}</span></li>`).join("") +
+    `</ol></article>`).join("");
+}
+
+function renderTree() {
+  document.getElementById("tree").innerHTML = TREE.map(fo =>
+    `<section class="folder"><p class="fname">${esc(fo.folder)}<small>${esc(fo.note)}</small></p>` +
+    fo.files.map(f =>
+      `<div class="file" data-text="${esc((f.name + " " + f.what).toLowerCase())}">` +
+      `<div class="head"><span class="name">${esc(f.name)}</span><span class="what">${esc(f.what)}</span></div>` +
+      (f.items.length ? `<ul class="items">` + f.items.map(it => {
+        const id = idFor(fo.folder, it.sig);
+        const tag = it.kind === "shape" ? '<span class="tag">class</span>' : "";
+        const subs = it.subs ? `<ul class="subitems">${it.subs.map(([s, d]) => `<li><span class="sig">${esc(s)}</span><span>${esc(d)}</span></li>`).join("")}</ul>` : "";
+        const text = (it.sig + " " + it.say + " " + (it.subs || []).flat().join(" ")).toLowerCase();
+        return `<li class="item ${it.kind}"${id ? ` id="${esc(id)}"` : ""} data-text="${esc(text)}">` +
+          `<span class="sig">${esc(it.sig)}${tag}</span><span class="say">${esc(it.say)}</span>${subs}</li>`;
+      }).join("") + `</ul>` : "") +
+      `</div>`).join("") +
+    `</section>`).join("");
+}
+
+function flash(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const box = document.getElementById("find");
+  if (box.value) { box.value = ""; applyFind(""); }
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 1800);
+}
+
+// Hide every function and file that doesn't contain the typed word.
+function applyFind(q) {
+  q = q.trim().toLowerCase();
+  let any = false;
+  for (const file of document.querySelectorAll(".file")) {
+    const fileHit = !q || file.dataset.text.includes(q);
+    let itemHit = false;
+    for (const item of file.querySelectorAll(".item")) {
+      const hit = !q || fileHit || item.dataset.text.includes(q);
+      item.classList.toggle("hidden-by-find", !hit);
+      if (q && item.dataset.text.includes(q)) itemHit = true;
+    }
+    const show = fileHit || itemHit;
+    file.classList.toggle("hidden-by-find", !show);
+    if (show) any = true;
+  }
+  for (const folder of document.querySelectorAll(".folder")) {
+    folder.classList.toggle("hidden-by-find", !folder.querySelector(".file:not(.hidden-by-find)"));
+  }
+  document.getElementById("nomatch").hidden = any;
+}
+
+renderChains();
+renderTree();
+document.addEventListener("click", e => {
+  const b = e.target instanceof Element && e.target.closest(".jump");
+  if (b) flash(b.dataset.target);
+});
+document.getElementById("find").addEventListener("input", e => applyFind(e.target.value));
+})();
+</script>

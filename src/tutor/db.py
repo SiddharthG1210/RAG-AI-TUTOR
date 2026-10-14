@@ -17,6 +17,9 @@ Tables arrive milestone by milestone (PLAN.md › Data). This module has:
   passage's pool of checked questions, asked one per review.
 - **llm_calls** (same concept): one row per LLM call, with its tokens, to
   keep an eye on the free tier.
+- **attempts** (M1 concept "Grading grounded in the passage"): one row per
+  graded answer, with the grade and what it was based on. The same-answer
+  check looks here before calling the LLM.
 """
 
 import json
@@ -30,6 +33,7 @@ from tutor.ingest.pdf import Paragraph, Topic
 # for type checkers and editors. tutor.questions imports this module, so
 # importing it back at run time would be a circular import.
 if TYPE_CHECKING:
+    from tutor.grading import Grade
     from tutor.questions import Question
 
 # "CREATE TABLE IF NOT EXISTS" makes the schema safe to run on every
@@ -89,6 +93,28 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     total_tokens      INTEGER NOT NULL,  -- what counts against the free-tier limits
     seconds           REAL    NOT NULL,  -- how long the call took
     called_at         TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS attempts (
+    id             INTEGER PRIMARY KEY,
+    question_id    INTEGER NOT NULL REFERENCES questions(id),
+    -- The study session it belongs to (LangGraph's thread id, from the M1
+    -- concept "Pausing for your answer"). Empty (NULL) until sessions exist.
+    -- It's here from the start because "CREATE TABLE IF NOT EXISTS" never
+    -- adds a column to a table that already exists.
+    session_id     TEXT,
+    answer         TEXT    NOT NULL,  -- your answer, exactly as typed
+    tidied_answer  TEXT    NOT NULL,  -- lowercase, spaces tidied: what the same-answer check uses
+    verdict        TEXT    NOT NULL,  -- 'correct', 'partly correct' or 'incorrect'
+    -- The LLM's whole Grade as JSON: quotes, missing, wrong, extras and grade.
+    grade_details  TEXT    NOT NULL,
+    -- 1 = every quote is really in the passage; 0 = the tutor showed
+    -- "I couldn't find support for this grade", and the attempt is never reused.
+    supported      INTEGER NOT NULL,
+    prompt_version TEXT    NOT NULL,  -- the grader prompt's version (a hash of prompts/grader.md)
+    model          TEXT    NOT NULL,  -- the grading model, e.g. 'openai/gpt-oss-120b'
+    settings       TEXT    NOT NULL,  -- the call's settings, e.g. 'reasoning_effort=medium'
+    created_at     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -307,3 +333,93 @@ def log_llm_call(
             "total_tokens, seconds) VALUES (?, ?, ?, ?, ?, ?)",
             (model, purpose, prompt_tokens, completion_tokens, total_tokens, seconds),
         )
+
+
+def save_attempt(
+    conn: sqlite3.Connection,
+    question_id: int,
+    session_id: str | None,
+    answer: str,
+    tidied_answer: str,
+    grade: "Grade",
+    supported: bool,
+    prompt_version: str,
+    model: str,
+    settings: str,
+) -> int:
+    """Save one graded answer.
+
+    Args:
+        conn: An open connection.
+        question_id: The question that was answered.
+        session_id: The study session, or None before sessions exist.
+        answer: The answer exactly as typed.
+        tidied_answer: The answer lowercased with its spaces tidied.
+        grade: The LLM's Grade, saved whole as JSON.
+        supported: Whether every quote in the grade is really in the passage.
+        prompt_version: The grader prompt's version (from ``load_prompt()``).
+        model: The grading model.
+        settings: The call's settings, e.g. "reasoning_effort=medium".
+
+    Returns:
+        The new attempt's id.
+    """
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO attempts (question_id, session_id, answer, tidied_answer, verdict, "
+            "grade_details, supported, prompt_version, model, settings) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                question_id,
+                session_id,
+                answer,
+                tidied_answer,
+                grade.verdict,
+                # model_dump_json() turns the whole Grade into one JSON string;
+                # Grade.model_validate_json() turns it back into a Grade.
+                grade.model_dump_json(),
+                # SQLite has no true/false type: int(True) is 1, int(False) is 0.
+                int(supported),
+                prompt_version,
+                model,
+                settings,
+            ),
+        )
+    return cursor.lastrowid
+
+
+def find_attempt(
+    conn: sqlite3.Connection,
+    question_id: int,
+    tidied_answer: str,
+    prompt_version: str,
+    model: str,
+    settings: str,
+) -> sqlite3.Row | None:
+    """Find an earlier supported attempt with exactly this answer to this question.
+
+    This is the same-answer check (PLAN.md › How the tutor behaves › Same
+    answer, same grade). The SQL "=" compares the tidied answers character
+    by character, so one changed word means no match. The prompt version,
+    model and settings must match too, so changing any of them grades
+    answers afresh. Attempts whose quotes failed are skipped, so the same
+    answer sent again gets a fresh try instead of "no support" forever.
+
+    Args:
+        conn: An open connection.
+        question_id: The question being answered.
+        tidied_answer: The answer, tidied by ``tidy_answer()``.
+        prompt_version: The grader prompt's current version.
+        model: The grading model about to be used.
+        settings: The call's settings about to be used.
+
+    Returns:
+        The most recent matching attempt, or None if there is none. None
+        isn't an error here: it just means the answer has to be graded.
+    """
+    return conn.execute(
+        "SELECT * FROM attempts WHERE question_id = ? AND tidied_answer = ? "
+        "AND prompt_version = ? AND model = ? AND settings = ? AND supported = 1 "
+        "ORDER BY id DESC LIMIT 1",
+        (question_id, tidied_answer, prompt_version, model, settings),
+    ).fetchone()

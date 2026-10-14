@@ -1,4 +1,4 @@
-"""Tests for ``tutor.db``: the topics, passages, questions and llm_calls tables.
+"""Tests for ``tutor.db``: the topics, passages, questions, llm_calls and attempts tables.
 
 Every test uses an in-memory database (``":memory:"``): SQLite builds it in
 RAM, it starts empty, and it disappears when the connection closes, so tests
@@ -6,6 +6,7 @@ never touch ``data/tutor.db`` and never affect each other.
 """
 
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,13 +14,16 @@ import pytest
 
 from tutor.db import (
     connect,
+    find_attempt,
     list_passages,
     list_questions,
     list_topics,
     log_llm_call,
+    save_attempt,
     save_chapter,
     save_questions,
 )
+from tutor.grading import Grade
 from tutor.ingest.pdf import Paragraph, Topic
 
 TOPICS = [
@@ -111,6 +115,70 @@ def test_llm_calls_are_logged() -> None:
     log_llm_call(conn, "openai/gpt-oss-20b", "questions", 900, 600, 1500, 2.5)
     row = conn.execute("SELECT model, purpose, total_tokens, seconds FROM llm_calls").fetchone()
     assert tuple(row) == ("openai/gpt-oss-20b", "questions", 1500, 2.5)
+
+
+GRADE = Grade(quotes=["much easier"], missing=[], wrong=[], extras=[], verdict="correct")
+
+
+def a_question_id(conn: sqlite3.Connection) -> int:
+    """Save one passage with one question, and return the question's id.
+
+    Args:
+        conn: An empty in-memory database.
+
+    Returns:
+        The question's id, for attempts to point at.
+    """
+    save_chapter(conn, TOPICS, {"1.3.1.2": [[para("In classification, …", 49)]]})
+    passage_id = list_passages(conn)[0]["id"]
+    question = SimpleNamespace(question="Why?", key_points=["a point"], quote="much easier")
+    save_questions(conn, passage_id, [question], "q-version")
+    return list_questions(conn, passage_id)[0]["id"]
+
+
+def test_a_saved_attempt_is_found_by_the_same_answer_check() -> None:
+    """Same question, tidied answer, prompt version, model and settings: found, with its grade."""
+    conn = connect(":memory:")
+    question_id = a_question_id(conn)
+    attempt_id = save_attempt(
+        conn, question_id, None, "Much Easier", "much easier", GRADE, True, "v1", "m", "s"
+    )
+
+    row = find_attempt(conn, question_id, "much easier", "v1", "m", "s")
+
+    assert row["id"] == attempt_id
+    assert (row["answer"], row["verdict"], row["supported"]) == ("Much Easier", "correct", 1)
+    assert Grade.model_validate_json(row["grade_details"]) == GRADE
+
+
+@pytest.mark.parametrize(
+    ("tidied", "version", "model", "settings"),
+    [
+        ("much harder", "v1", "m", "s"),
+        ("much easier", "v2", "m", "s"),
+        ("much easier", "v1", "other", "s"),
+        ("much easier", "v1", "m", "other"),
+    ],
+    ids=["another answer", "another prompt version", "another model", "other settings"],
+)
+def test_any_difference_means_no_match(
+    tidied: str, version: str, model: str, settings: str
+) -> None:
+    """The match is exact on all five parts of the key, never "close enough"."""
+    conn = connect(":memory:")
+    question_id = a_question_id(conn)
+    save_attempt(conn, question_id, None, "x", "much easier", GRADE, True, "v1", "m", "s")
+
+    assert find_attempt(conn, question_id, tidied, version, model, settings) is None
+
+
+def test_an_unsupported_attempt_is_never_found() -> None:
+    """An attempt whose quotes failed is saved, but the same-answer check skips it."""
+    conn = connect(":memory:")
+    question_id = a_question_id(conn)
+    save_attempt(conn, question_id, None, "x", "much easier", GRADE, False, "v1", "m", "s")
+
+    assert find_attempt(conn, question_id, "much easier", "v1", "m", "s") is None
 
 
 def test_connect_needs_an_existing_folder(tmp_path: Path) -> None:

@@ -4,42 +4,30 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 
 ## Where we are
 - **Milestone:** M1 (v0.1.0), "one question, graded, with the passage shown", in progress.
-- **M0 setup is done:**
-  - The scaffold pull request is merged.
-  - `main` is protected: the `ruff + pytest` check has to pass before a pull request can merge.
-  - `data/d2l-en.pdf` is downloaded, and `.env` holds a working Groq key.
-  - `git check-ignore` confirms that `.env`, `data/` and `scratch/` are ignored.
-- **Done in M1:** the concept "A rough first version in one file" (see Concepts done).
+- **Done in M1:** concepts 0 to 4 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
 - **Next session:**
   1. Rebuild task (see Rebuild results).
-  2. The M1 concept "Turning the PDF into prose with page numbers", on branch `feat/pdf-extract`. Start from an up-to-date `main` (`git switch main`, `git pull`, then `git switch -c feat/pdf-extract`). PyMuPDF is added with `uv add pymupdf` in that concept's pull request. The open questions below about bookmarks and page numbers belong to this concept.
-- **Proposed decisions:** none is needed for the next concept. Embeddings and Chroma are confirmed before the M1 concept "Embeddings and vector search", Gradio before "API and UI".
+  2. The M1 concept "Grading grounded in the passage", on branch `feat/grading`. The branch's first commit is the map's refreshed date in `docs/project-map.json`, which was left uncommitted when the concept "Structured output (question writing)" was merged.
+- **Proposed decisions:** none is needed for grading. Gradio is confirmed before the M1 concept "API and UI".
 
 ## Concepts done
-### M1 concept "A rough first version in one file" (2026-10-05)
-- **Files:** both are in `scratch/`, which git ignores, so they're never committed.
-  - `scratch/hello_groq.py`: the tiny example, one Groq call that prints its token usage.
-  - `scratch/first_loop.py`: Claude wrote `write_question()` (gpt-oss-20b, `reasoning_effort="low"`) and `grade_answer()` (gpt-oss-120b, `reasoning_effort="medium"`), each with its prompt written inline and returning free text. The user wrote `main()`: question → `input()`, which asks again on an empty answer → `grade_answer(PASSAGE, question, answer)` → print the grade, `PASSAGE_SOURCE` and `PASSAGE`.
-- **Run with:** `uv run --with openai --env-file .env scratch/first_loop.py`.
-- **Passage:** two paragraphs from section 1.3.1.2 "Classification" (printed page 10, PDF page 50), 261 words.
-- **Result:** one question was asked, and a typed answer was graded "correct" with the passage shown. That meets the first item of M1's "Done when" list.
-- **Explain back:** three check questions, then a summary in the user's own words. Two gaps were corrected:
-  - The user mixed up *printing* the passage (for the user) with *sending* it to the grader (so the grade is grounded).
-  - The user left out the question as the grader's third input.
-- **Skipped for time:** the optional step of trying different answers (correct, wrong, correct with an outside fact, the same answer twice).
+- **"A rough first version in one file"** (2026-10-05): `scratch/first_loop.py`, never committed. The user wrote `main()`; Claude wrote the two inline Groq calls.
+- **"Turning the PDF into prose with page numbers"** (PR #4, 2026-10-06): `src/tutor/ingest/pdf.py`. The PDF step also rejoins words split across lines; when a split falls on a real hyphen it glues the word ("multi-label" → "multilabel"), which the quote check later had to allow for.
+- **"Chunking"** (PR #5, 2026-10-08): `src/tutor/ingest/chunk.py`. Chapter 1 is 49 passages of 120–350 words.
+- **"Embeddings and vector search"** (PR #6, 2026-10-11): `src/tutor/retrieval/`, with `scripts/check_retrieval.py`.
+- **"Structured output (question writing)"** (PR #7, 2026-10-13):
+  - **The chain:** passage row → messages (the prompt + the passage text, plus earlier questions on a refill) → `complete_structured(..., QuestionSet)` → `quote_in_passage()` per question → `save_questions()` → 0 to 3 kept questions.
+  - **Who wrote what:** the user wrote the `Question` and `QuestionSet` models. At the user's request Claude wrote the quote check, the prompt and `write_questions()`, and explained each step afterwards.
+  - **Check script, gpt-oss-20b at reasoning "low":** 29 of 30 quotes passed (97%; M1 needs 90%). A made-up quote and one-word changes were all rejected.
 
 ## Rebuild results
-None yet.
+- **Concept "A rough first version in one file":** the rebuild of `main()` was never recorded.
 
-**Next session's rebuild task:** write `main()` of `scratch/first_loop.py` again from memory. Either clear the function, or write it in a new file in `scratch/`. The answer only needs to get the order of the calls and the inputs to `grade_answer()` right.
+**Next session's rebuild task:** write `Question` and `QuestionSet` again from memory, in a file in `scratch/`, then say where the rule "exactly 3 questions" has to live and why. Answer: in Pydantic (`min_length`/`max_length`, checked after the call) and in words the LLM reads (the docstring or the prompt), because `strict_schema()` drops count rules before the call.
 
 ## Open questions
+- **"According to the passage" in questions:** about 4 in 10 questions mention the passage, which the learner never sees. Two prompt wordings, reasoning "medium" and gpt-oss-120b didn't fix it. Accepted as a known limit. Revisit with Google Gemini Flash while building grading: it needs a free Google AI Studio key and a change to the PLAN.md decision "LLM: Groq free tier". `scripts/check_questions.py --model …` compares models.
+- **For the M1 concept "Conditional edges":** `write_questions()` can fail in two ways, and routing must handle both: no quote passes (0 kept), or the call itself fails, for example when the LLM returned 1 question instead of 3 and Pydantic refused it.
+- **Quotes cut mid-sentence** can drop a "not" and still pass. The prompt asks for whole sentences, and 1 quote in 29 still started mid-sentence. If the check script shows more, code could require a quote to start at a sentence start.
+- **Not answerable from the passage:** a question can have a real quote and still ask something the passage doesn't explain. That's a case for the M3 flag.
 - Whether to plan a production stage (it would be `v2.0.0`). Decide after `v1.0.0`.
-- **For the M1 concept "Turning the PDF into prose with page numbers":**
-  - **Bookmarks have titles only.** They say "Classification", not "1.3.1.2 Classification", so section numbers have to be computed from the bookmark levels. PyMuPDF's `get_toc()` returns `[level, title, page]`. Chapter 1 is "Introduction", level 1 at PDF page 41. Its "Summary" and "Exercises" entries are level 2 at page 69.
-  - **Each page has two numbers:** the printed one (page 10, from `page.get_label()`) and the PDF file's page number (50). Decide which one citations show.
-  - **Raw page text mixes in what `classify_block()` must drop:** running headers (a section title plus the page number), figure captions ("Fig. 1.3.2 Death cap - do not eat!"), and words split across lines with a hyphen ("corre-" / "sponding").
-- **A test case for the M1 concept "Structured output (question writing)":** the rough question writer asked a question its passage can't answer, even though the prompt said "answerable from this passage alone":
-  - The question: "How does expressing a model's output as probabilities help when it is difficult to optimize for a firm categorical assignment?"
-  - Why it fails: section 1.3.1.2 says probabilities are "much easier" and leaves the reason for later chapters.
-  - The quote check alone won't reject it, because the quote would be real. It's a case for the "not answerable from the passage" flag (M3).

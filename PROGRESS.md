@@ -84,3 +84,15 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - My `main()` is the glue: it passes values from one call to the next. In the concept "The study loop: state, nodes, edges", those values become the graph's state and each call becomes a node. Re-asking on an empty answer means an empty answer never costs a Groq call.
 - The LLM wrote a question its passage can't answer. It asked *how* probabilities make optimizing easier, but the passage only says they do and leaves the reason for later chapters. Nothing in the rough file catches that. The quote check and the "not answerable from the passage" flag will.
 - A free-text grade can't be trusted by code. It might come back as "Correct", "**Grade:**" in Markdown, or "mostly correct". The `Grade` schema with strict structured output forces one of three exact values.
+
+### Structured output (question writing) (2026-10-13)
+**Did:** wrote the `Question` and `QuestionSet` models and saw the JSON Schema the LLM receives. Decided the quote check's rules with Claude, then ran the question writer on 10 real passages.
+**Learned:**
+- A Pydantic model becomes a JSON Schema that's sent with the call. Field descriptions and the class docstring are part of it, so the LLM reads them as instructions.
+- Types in the schema are enforced; descriptions are only requests. Count rules like `min_length` aren't even sent (strict mode drops them), so "exactly 3" lives in two places: in words for the LLM, and in Pydantic to catch it when the LLM ignores them.
+- `list[Question]`, not `list[str]` or `list[dict]`: a class I wrote can be a type, and that's what puts its fields into the schema.
+- Rules belong in the prompt file, not in field descriptions, because only the prompt has a version saved with every question.
+- The quote check normalizes both texts and then needs an exact match of whole words. A tidy-up step is only allowed if it can't change the meaning. A substring check alone would accept "supervised learning" inside "unsupervised learning".
+- Key points must come only from the passage. An extra true point would mark me down for something the passage never taught, again at every review.
+- Strict mode isn't a guarantee on gpt-oss: Groq can reject an answer that breaks the schema, so the wrapper retries once and then fails loudly.
+- Small samples mislead. One experiment said reasoning "medium" fixed "according to the passage" (1 of 9 questions); the full run of 30 didn't confirm it.

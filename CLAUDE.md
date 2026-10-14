@@ -54,6 +54,7 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Embed every saved passage again, after changing the header or the embedding model | `uv run python scripts/ingest.py --embed` |
 | Check search on chapter 1 (test queries, off-topic ones, the scores for the cut-off) | `uv run python scripts/check_retrieval.py` |
 | Check the question writer on 10 passages, on a copy of the database (the quote-check pass rate; a made-up quote and one-word changes rejected). Makes 10 real LLM calls | `uv run python scripts/check_questions.py` |
+| Re-grade the five test answers on a copy of the database, after any change to `prompts/grader.md`, the `Grade` form or the grading model (each grade against the one it should get; a repeated answer reused, a one-word change graded fresh). Makes 6 real LLM calls | `uv run python scripts/regrade.py` |
 | Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
@@ -92,6 +93,19 @@ Keep the map current without being asked:
 - **After such a pull request is merged:** rebuild the page and republish it to the same link with the project-map skill, leaving out `icon` and `capabilities` so the ticks and settings stay.
 - **Concept ids never change:** ticks are stored under them. To rename a concept, change its `name`.
 
+## Code tree
+The Study Tutor Code Tree is a plain-words picture of the code: every file, function and class under `src/tutor/`, `prompts/` and `scripts/`, plus the call chains that connect them. The user reads it to understand the code and to explain it to the next session. Link: https://claude.ai/artifact/3rxaNUDZxmVoZemwPdpfog
+- **Where it comes from:** `docs/code-tree.html`, one self-contained page. Its content is the two lists at the top of its script: `CHAINS` (each chain's steps, in call order, with what each step hands to the next) and `TREE` (folder → file → items). Change only those lists, the eyebrow and the footer. Never restyle the page or change its rendering code, so every update looks the same.
+- **The style of an entry:**
+  - Names and arguments are copied exactly from the code. Long argument lists end in `…`.
+  - Each description is one plain sentence, written from the docstring.
+  - `kind` is `"fn"` for a function, `"shape"` for a class (methods go in `subs`), or `"helper"` for a name starting with `_`.
+  - Tests stay out.
+
+Keep it current without being asked:
+- **A branch adds, removes or renames a file, function or class, or changes what one does or calls:** update `docs/code-tree.html` in that same branch, so the tree changes in the same pull request as the code. A concept that creates a new chain of calls (grading, the study loop) gets a new entry in `CHAINS`. Check each chain against the real calls in the code. Set the date in the eyebrow and footer to today.
+- **After that pull request is merged:** republish `docs/code-tree.html` to the same link with the Artifact tool. Pass the link as `url` (read the artifact first), and leave out `icon`.
+
 ## Project documents
 - Each fact lives in exactly one file:
   - `PLAN.md`: what to build and why.
@@ -99,6 +113,7 @@ Keep the map current without being asked:
   - `LEARNING_LOG.md`: the session handoff, meaning where we are, what's next, rebuild results and open questions.
   - `PROGRESS.md`: what the user has learned and through what, in plain words. It's written for the user to read.
   - `docs/project-map.json`: the content of the Study Tutor Map, a view of PLAN.md and the repo (see Project map).
+  - `docs/code-tree.html`: the Study Tutor Code Tree, a view of the code (see Code tree). When it and the code disagree, the code wins and the tree gets fixed.
   - Neither kind of note ever goes in PLAN.md.
 - Write these files so that a fresh session understands them on their own:
   - Refer to things by name ("the M1 concept 'Chunking'"), never by a bare number.
