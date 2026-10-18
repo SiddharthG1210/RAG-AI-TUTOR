@@ -15,10 +15,14 @@ import pytest
 from tutor.db import (
     connect,
     find_attempt,
+    get_question,
     list_passages,
     list_questions,
     list_topics,
     log_llm_call,
+    mark_question_used,
+    next_new_passage,
+    next_unused_question,
     save_attempt,
     save_chapter,
     save_questions,
@@ -107,6 +111,104 @@ def test_questions_are_saved_in_their_passages_pool() -> None:
         0,
     )
     assert json.loads(row["key_points"]) == ["easier to optimize"]
+
+
+def three_passages(conn: sqlite3.Connection) -> list[int]:
+    """Save three passages of topic 1.3.1.2, each with one unused question.
+
+    Args:
+        conn: An empty in-memory database.
+
+    Returns:
+        The three passages' ids, in book order.
+    """
+    passages = [[para("First …", 49)], [para("Second …", 50)], [para("Third …", 51)]]
+    save_chapter(conn, TOPICS, {"1.3.1.2": passages})
+    ids = [row["id"] for row in list_passages(conn)]
+    question = SimpleNamespace(question="Why?", key_points=["a point"], quote="…")
+    for passage_id in ids:
+        save_questions(conn, passage_id, [question], "q-version")
+    return ids
+
+
+def mark_asked(conn: sqlite3.Connection, passage_id: int) -> None:
+    """Mark every question of a passage as used, as the study loop does after each grade.
+
+    Args:
+        conn: An open connection.
+        passage_id: The passage whose questions were asked.
+    """
+    for row in list_questions(conn, passage_id):
+        mark_question_used(conn, row["id"])
+
+
+def test_the_next_new_passage_skips_passages_already_asked() -> None:
+    """Passage 1 was asked, so passage 2 comes next; written-but-unasked questions don't count."""
+    conn = connect(":memory:")
+    first, second, _ = three_passages(conn)
+    # Before anything is asked, the first passage in book order is new.
+    assert next_new_passage(conn)["id"] == first
+    mark_asked(conn, first)
+    row = next_new_passage(conn)
+    assert row["id"] == second
+    # It carries its topic's number and title, like list_passages() rows.
+    assert (row["number"], row["title"]) == ("1.3.1.2", "Classification")
+
+
+def test_no_new_passage_left_fails_loudly() -> None:
+    """When every passage has been asked about, it raises instead of returning None."""
+    conn = connect(":memory:")
+    for passage_id in three_passages(conn):
+        mark_asked(conn, passage_id)
+    with pytest.raises(ValueError, match="no new passage"):
+        next_new_passage(conn)
+
+
+def test_the_next_unused_question_is_the_oldest_one_not_yet_asked() -> None:
+    """Questions come out in the order they were written, skipping used ones."""
+    conn = connect(":memory:")
+    save_chapter(conn, TOPICS, {"1.3.1.2": [[para("In classification, …", 49)]]})
+    passage_id = list_passages(conn)[0]["id"]
+    questions = [
+        SimpleNamespace(question=text, key_points=["a point"], quote="…")
+        for text in ("First?", "Second?", "Third?")
+    ]
+    save_questions(conn, passage_id, questions, "q-version")
+
+    first = next_unused_question(conn, passage_id)
+    assert first["text"] == "First?"
+    mark_question_used(conn, first["id"])
+    assert next_unused_question(conn, passage_id)["text"] == "Second?"
+
+
+def test_an_empty_or_used_up_pool_gives_none() -> None:
+    """None, not an error: it's the signal to write questions."""
+    conn = connect(":memory:")
+    save_chapter(conn, TOPICS, {"1.3.1.2": [[para("In classification, …", 49)]]})
+    passage_id = list_passages(conn)[0]["id"]
+    # No questions written yet.
+    assert next_unused_question(conn, passage_id) is None
+    # One written and asked.
+    question = SimpleNamespace(question="Why?", key_points=["a point"], quote="…")
+    save_questions(conn, passage_id, [question], "q-version")
+    mark_asked(conn, passage_id)
+    assert next_unused_question(conn, passage_id) is None
+
+
+def test_a_question_is_read_back_by_its_id() -> None:
+    """get_question gives the same row the pool has; a wrong id raises."""
+    conn = connect(":memory:")
+    question_id = a_question_id(conn)
+    assert get_question(conn, question_id)["text"] == "Why?"
+    with pytest.raises(ValueError, match="No question has the id 99"):
+        get_question(conn, 99)
+
+
+def test_marking_a_question_that_doesnt_exist_fails_loudly() -> None:
+    """A wrong id raises instead of changing nothing in silence."""
+    conn = connect(":memory:")
+    with pytest.raises(ValueError, match="No question has the id 99"):
+        mark_question_used(conn, 99)
 
 
 def test_llm_calls_are_logged() -> None:

@@ -21,6 +21,7 @@ dependencies = [
     # Talks to the LLM: Groq's API is OpenAI-compatible, so the official openai
     # SDK works with just a different base URL (M1 concept "Structured output
     # (question writing)"). Apache-2.0.
+    "langgraph>=1.2.15",
     "openai>=3.29.0",
     # Defines the shape of every structured LLM answer (QuestionSet, Grade) and
     # checks the answer against it. MIT.

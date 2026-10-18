@@ -263,6 +263,46 @@ def list_passages(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def next_new_passage(conn: sqlite3.Connection) -> sqlite3.Row:
+    """Return the first passage in book order that you haven't been asked about yet.
+
+    "You choose" uses this when no topic was typed (PLAN.md › What "You
+    choose" picks: the next new passage, in book order). A passage is new
+    while none of its questions has ``used = 1``. A question is marked used
+    only after its answer is graded, so a question you stopped before
+    answering leaves its passage new, and it comes back next session.
+    A passage whose questions were written but never asked is still new.
+
+    Args:
+        conn: An open connection.
+
+    Returns:
+        The passage's row: the same columns as ``list_passages()`` gives.
+
+    Raises:
+        ValueError: If every passage has been asked about.
+    """
+    # The same SELECT, JOIN and ORDER BY as list_passages(), plus one filter.
+    # "NOT EXISTS (subquery)" keeps a passage only if the subquery finds no
+    # row: here, no question of this passage with used = 1. The subquery
+    # runs once per passage, reading that passage's id as passages.id.
+    # LIMIT 1 keeps only the first passage left, so SQLite can stop there.
+    row = conn.execute(
+        "SELECT passages.*, topics.number, topics.title "
+        "FROM passages JOIN topics ON topics.id = passages.topic_id "
+        "WHERE NOT EXISTS ("
+        "    SELECT 1 FROM questions "
+        "    WHERE questions.passage_id = passages.id AND questions.used = 1"
+        ") "
+        "ORDER BY topics.id, passages.position "
+        "LIMIT 1"
+    ).fetchone()
+    # fetchone() gives None when no passage is left.
+    if row is None:
+        raise ValueError("Every passage has been asked about: there's no new passage left.")
+    return row
+
+
 def save_questions(
     conn: sqlite3.Connection, passage_id: int, questions: list["Question"], prompt_version: str
 ) -> None:
@@ -305,6 +345,80 @@ def list_questions(conn: sqlite3.Connection, passage_id: int) -> list[sqlite3.Ro
     return conn.execute(
         "SELECT * FROM questions WHERE passage_id = ? ORDER BY id", (passage_id,)
     ).fetchall()
+
+
+def get_question(conn: sqlite3.Connection, question_id: int) -> sqlite3.Row:
+    """Return one question by its id.
+
+    The study loop's state keeps only the question's id (a row can't be
+    saved when the graph pauses, from the M1 concept "Pausing for your
+    answer"), so each step that needs the question reads it here.
+
+    Args:
+        conn: An open connection.
+        question_id: The question's id.
+
+    Returns:
+        The question's row, with ``id``, ``passage_id``, ``text``,
+        ``key_points`` (a JSON string) and ``quote``.
+
+    Raises:
+        ValueError: If no question has that id.
+    """
+    row = conn.execute("SELECT * FROM questions WHERE id = ?", (question_id,)).fetchone()
+    # fetchone() gives None when no row matched.
+    if row is None:
+        raise ValueError(f"No question has the id {question_id}.")
+    return row
+
+
+def next_unused_question(conn: sqlite3.Connection, passage_id: int) -> sqlite3.Row | None:
+    """Return the passage's oldest question that hasn't been asked yet, or None if there's none.
+
+    The study loop's ``get_question`` step calls this on every turn, once
+    the passage is picked. ``None`` isn't an error: an empty pool is the
+    normal signal to write questions (PLAN.md › Decisions › Reviews), the
+    same way ``find_attempt()`` gives ``None`` for "no earlier answer".
+
+    Args:
+        conn: An open connection.
+        passage_id: The passage picked for this turn.
+
+    Returns:
+        The question's row, with ``id``, ``passage_id``, ``text``,
+        ``key_points`` (a JSON string) and ``quote``: what
+        ``grade_answer()`` needs. ``None`` if every question of the passage
+        is used, or it has none yet.
+    """
+    # Lowest id first: the order the questions were written in. LIMIT 1
+    # keeps only that one.
+    return conn.execute(
+        "SELECT * FROM questions WHERE passage_id = ? AND used = 0 ORDER BY id LIMIT 1",
+        (passage_id,),
+    ).fetchone()
+
+
+def mark_question_used(conn: sqlite3.Connection, question_id: int) -> None:
+    """Mark a question as asked, so it never comes back and its passage is no longer new.
+
+    The study loop's ``grade`` step calls this right after the answer is
+    graded, never earlier: a question you stopped before answering stays
+    unused, so it comes back next session.
+
+    Args:
+        conn: An open connection.
+        question_id: The question that was just graded.
+
+    Raises:
+        ValueError: If no question has that id.
+    """
+    # "with conn" commits the change, or rolls it back if anything fails.
+    with conn:
+        cursor = conn.execute("UPDATE questions SET used = 1 WHERE id = ?", (question_id,))
+    # rowcount is how many rows the UPDATE changed: 0 means the id matched
+    # nothing, which would otherwise pass silently.
+    if cursor.rowcount == 0:
+        raise ValueError(f"No question has the id {question_id}.")
 
 
 def log_llm_call(
