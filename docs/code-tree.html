@@ -115,7 +115,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 14 October 2026 (after grading was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 18 October 2026 (after the study loop was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
     <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after the grading pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the study loop pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -189,7 +189,7 @@ const CHAINS = [
   },
   {
     title: "Grading an answer",
-    when: "When you answer a question (for now, from scripts/regrade.py)",
+    when: "When you answer a question in scripts/study.py (or a test answer in scripts/regrade.py)",
     steps: [
       ["grade_answer", "starts here with a question row and your typed answer"],
       ["get_passage", "the question’s own passage, by the id stored with the question"],
@@ -199,6 +199,18 @@ const CHAINS = [
       ["complete_structured", "one LLM call → a Grade: quotes, missing, wrong, extras, verdict"],
       ["quote_in_passage", "every quote really in the passage? → supported or not"],
       ["save_attempt", "the graded answer → the attempts table"]
+    ]
+  },
+  {
+    title: "A study turn",
+    when: "uv run python scripts/study.py, or with --topic “gradient descent”",
+    steps: [
+      ["build_graph", "the five steps and their order → a graph that runs them, carrying one state dict"],
+      ["pick_passage", "starts with {topic}: typed → search(), none → next_new_passage(); adds passage_id"],
+      ["pick_question", "next_unused_question(); an empty pool → write_questions() first; adds question_id"],
+      ["ask", "prints the question, reads your answer with input(); adds answer"],
+      ["grade", "grade_answer(), then mark_question_used(); adds result"],
+      ["show", "prints the verdict, what’s missing or wrong, and the passage with its pages"]
     ]
   }
 ];
@@ -218,8 +230,12 @@ const TREE = [
         { kind: "fn", sig: "list_topics(conn)", say: "Gives back every topic, in book order." },
         { kind: "fn", sig: "get_passage(conn, passage_id)", say: "Gives back one passage, with its section number and title." },
         { kind: "fn", sig: "list_passages(conn)", say: "Gives back every passage, in book order." },
+        { kind: "fn", sig: "next_new_passage(conn)", say: "Gives back the first passage in book order that you haven’t been asked about yet." },
         { kind: "fn", sig: "save_questions(conn, passage_id, questions, prompt_version)", say: "Adds checked questions to a passage’s pool, with the version of the prompt that wrote them." },
         { kind: "fn", sig: "list_questions(conn, passage_id)", say: "Gives back every question ever written for a passage, used or not." },
+        { kind: "fn", sig: "get_question(conn, question_id)", say: "Gives back one question, by its id." },
+        { kind: "fn", sig: "next_unused_question(conn, passage_id)", say: "Gives back a passage’s oldest question not asked yet, or nothing when its pool is empty." },
+        { kind: "fn", sig: "mark_question_used(conn, question_id)", say: "Marks a question as asked, once its answer is graded, so it never comes back." },
         { kind: "fn", sig: "log_llm_call(conn, model, purpose, …)", say: "Writes down one LLM call: which model, what for, how many tokens, how many seconds." },
         { kind: "fn", sig: "save_attempt(conn, question_id, session_id, answer, …)", say: "Saves one graded answer: the answer, its grade, whether its quotes checked out, and the prompt version, model and settings." },
         { kind: "fn", sig: "find_attempt(conn, question_id, tidied_answer, …)", say: "The same-answer check: finds an earlier supported attempt with exactly this answer, prompt version, model and settings." }
@@ -314,6 +330,26 @@ const TREE = [
     ]
   },
   {
+    folder: "src/tutor/graph/", note: "the study loop: one turn, step by step",
+    files: [
+      { name: "state.py", what: "What a turn carries from step to step, and the database connection every step can reach.", items: [
+        { kind: "shape", sig: "State", say: "The five keys a turn carries: your topic, the passage’s id, the question’s id, your answer, and the grade." },
+        { kind: "shape", sig: "Context", say: "Holds the open database connection, handed over once at the start; every step reads it as runtime.context.conn." }
+      ]},
+      { name: "nodes.py", what: "The five steps of a turn: each reads the state, calls a tool, and returns its one new key.", items: [
+        { kind: "shape", sig: "TurnStopped", say: "The error for a turn that can’t go on: a topic the book doesn’t cover, or no question that passed its quote check. study.py prints its message." },
+        { kind: "fn", sig: "pick_passage(state, runtime)", say: "Picks the passage: the closest one to your typed topic, or the next new one." },
+        { kind: "fn", sig: "pick_question(state, runtime)", say: "Picks the passage’s next unused question, writing a pool of questions first if it’s empty." },
+        { kind: "fn", sig: "ask(state, runtime)", say: "Prints the question and reads your answer, asking again if it’s empty." },
+        { kind: "fn", sig: "grade(state, runtime)", say: "Grades your answer, then marks the question as asked." },
+        { kind: "fn", sig: "show(state, runtime)", say: "Prints the verdict and what’s missing, wrong or extra (or “I couldn’t find support for this grade”), then the passage with its section and pages." }
+      ]},
+      { name: "build.py", what: "The wiring: which steps exist, and in what order they run.", items: [
+        { kind: "fn", sig: "build_graph()", say: "Adds the five steps (named pick_passage, pick_question, ask_question, grades and show_results), joins them in a straight line from START to END, and compiles the graph." }
+      ]}
+    ]
+  },
+  {
     folder: "prompts/", note: "instructions for the LLM, kept out of the code",
     files: [
       { name: "question_writer.md", what: "What the question-writing LLM is told on every call: 3 questions, only from the passage, key points from the passage, quotes copied as whole sentences.", items: [] },
@@ -353,6 +389,10 @@ const TREE = [
         { kind: "fn", sig: "calls_since(conn, after_id)", say: "Counts the LLM calls and tokens since a point in the token log." },
         { kind: "fn", sig: "last_call_id(conn)", say: "Where the token log ends right now." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
+      ]},
+      { name: "study.py", what: "Study one turn in the terminal: a question, your answer, the grade and the passage, all kept in the real database.", items: [
+        { kind: "fn", sig: "main()", say: "Opens the database, builds the graph and runs one turn; prints the message of a turn that has to stop, or “free limit reached”." },
+        { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --topic." }
       ]}
     ]
   }

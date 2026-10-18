@@ -294,7 +294,7 @@ src/tutor/
   scheduling.py (M4) · mistakes.py, patterns.py (M5)
   graph/           state.py, nodes.py, build.py (M1; grows each milestone) · agent.py (M2)
   api/             main.py, ui.py (M1) · progress page (M6) · demo.py (M7)
-scripts/           ingest.py, check_retrieval.py, check_questions.py, regrade.py (M1)
+scripts/           ingest.py, check_retrieval.py, check_questions.py, regrade.py, study.py (M1)
 tests/             one test file per core function
 data/              (ignored by git) the PDF, tutor.db, checkpoints.db, the downloaded embedding model
 scratch/           (ignored by git) first_loop.py, the rough first version (M1 concept 0)
@@ -338,9 +338,9 @@ scratch/           (ignored by git) first_loop.py, the rough first version (M1 c
 | 3 | Embeddings and vector search | feat/retrieval | Tiny example: cosine similarity in NumPy. `embed_passages()` and `embed_query()` (the section title in front of each passage, bge's prefix on queries). `search(query, k)`: cosine against every passage, top k. The distance cut-off, chosen from the retrieval check's results | Model loading. The embeddings table in SQLite, saving and loading vectors. Embedding passages during ingest. A retrieval check with 10 test queries, plus off-topic ones and topics chapter 1 only mentions. Tests |
 | 4 | Structured output (question writing) | feat/question-gen | The question-writing prompt, the `QuestionSet` schema (3 questions, each with key points and a quote), the quote check (`quotes.py`), and `write_questions()`, the wiring from passage to saved questions | Config, the LLM wrapper (Groq strict mode), the questions and token-log tables, 429 handling, a check on 10 passages, tests |
 | 5 | Grading grounded in the passage | feat/grading | The grading prompt and the `Grade` schema (quotes, what's missing, what's wrong, unchecked extras, and the verdict last). Five test answers (correct, partly correct, wrong, correct with an extra fact, off-topic) and the grade each should get | The same-answer check, the attempts table, the "no support found" path. `scripts/regrade.py`: it re-grades the test answers after any change to `prompts/grader.md` and lists every grade that changed |
-| 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5 |
+| 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5, the lookups they need (the next new passage, the next unused question), `scripts/study.py` to run one turn in the terminal, tests |
 | 7 | Conditional edges | feat/grounding-retry | The routing function: ask, write again (once), or skip the passage | Retry counters, tests |
-| 8 | Pausing for your answer | feat/answer-interrupt | The node that calls `interrupt()`, and resuming | The in-memory checkpointer, session ids, a command-line driver |
+| 8 | Pausing for your answer | feat/answer-interrupt | The node that calls `interrupt()`, and resuming | The in-memory checkpointer, session ids, resuming in `scripts/study.py` |
 | 9 | API and UI | feat/web-ui | Claude writes it all | FastAPI routes, the Gradio page. Submit is disabled while an answer is being graded (How the tutor behaves › Same answer, same grade) |
 
 **Done when:**

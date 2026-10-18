@@ -55,6 +55,7 @@ These exist from M0 onward and use uv (PLAN.md › Decisions › Python environm
 | Check search on chapter 1 (test queries, off-topic ones, the scores for the cut-off) | `uv run python scripts/check_retrieval.py` |
 | Check the question writer on 10 passages, on a copy of the database (the quote-check pass rate; a made-up quote and one-word changes rejected). Makes 10 real LLM calls | `uv run python scripts/check_questions.py` |
 | Re-grade the five test answers on a copy of the database, after any change to `prompts/grader.md`, the `Grade` form or the grading model (each grade against the one it should get; a repeated answer reused, a one-word change graded fresh). Makes 6 real LLM calls | `uv run python scripts/regrade.py` |
+| Study one turn in the terminal, on the real database: the next new passage, or `--topic "gradient descent"` for the closest one. Makes up to 2 real LLM calls (writing a pool of questions, grading your answer) | `uv run python scripts/study.py` |
 | Print the passages an ingest would save, saving nothing | `uv run python scripts/ingest.py --chapter 1 --show` |
 | List a chapter's fonts, to decide `classify_block()`'s rules | `uv run python scripts/ingest.py --chapter 1 --fonts` |
 
