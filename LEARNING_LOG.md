@@ -4,9 +4,9 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 
 ## Where we are
 - **Milestone:** M1 (v0.1.0), "one question, graded, with the passage shown", in progress.
-- **Done in M1:** concepts 0 to 5 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
-- **Next session:** the M1 concept "The study loop: state, nodes, edges", on branch `feat/study-graph`. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`.
-- **Proposed decisions:** none is needed for the study loop. Gradio is confirmed before the M1 concept "API and UI"; the daily review cap and the FSRS ratings before M4.
+- **Done in M1:** concepts 0 to 6 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
+- **Next:** the M1 concept "Conditional edges", on branch `feat/grounding-retry`. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`.
+- **Proposed decisions:** none is needed for "Conditional edges". Before the M1 concept "API and UI": Gradio, and "Read the topic first". Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study".
 
 ## Concepts done
 - **"A rough first version in one file"** (2026-10-05): `scratch/first_loop.py`, never committed. The user wrote `main()`; Claude wrote the two inline Groq calls.
@@ -22,6 +22,13 @@ The handoff between sessions: where the last session stopped, what's next, rebui
   - **Who wrote what:** at the user's request ("just build it") Claude wrote all of it: the `Grade` form, `prompts/grader.md`, `grade_answer()`, the attempts table, `scripts/regrade.py` and its five test answers. The user shaped the design in discussion (quotes first and the verdict last; the names `verdict` and `grade_details`), then asked about the finished code line by line.
   - **Decisions:** the `Grade` fields are written in the order quotes, missing, wrong, extras, verdict. `grade_answer()` looks up the passage itself. A grade with no quotes, or a quote not in the passage, is saved as unsupported and never reused. A reused grade isn't saved again. `session_id` exists in the attempts table and stays empty until "Pausing for your answer".
   - **`scripts/regrade.py`, gpt-oss-120b at reasoning "medium":** 5 of 5 verdicts as expected, every quote found in the passage, the same answer sent again reused with 0 LLM calls, a one-word change graded fresh. About 2,200 tokens per grade, inside PLAN.md's estimate of roughly 100 typed answers a day.
+- **"The study loop: state, nodes, edges"** (PR #9, 2026-10-18):
+  - **The chain:** `{"topic": ...}` → `pick_passage` (a typed topic → `search()`, none → `next_new_passage()`) adds `passage_id` → `pick_question` (`next_unused_question()`; an empty pool → `write_questions()`, then read the pool again) adds `question_id` → `ask` (`input()`) adds `answer` → `grade` (`grade_answer()`, then `mark_question_used()`) adds `result` → `show` prints the grade and the passage. `scripts/study.py` opens the database and runs one turn.
+  - **Who wrote what:** the user wrote `State` and `build_graph()` (`src/tutor/graph/`). Claude wrote the nodes, `Context`, `TurnStopped`, the four `db.py` lookups, `scripts/study.py` and the tests. Before that, a throwaway `scratch/tiny_graph.py` showed the state growing node by node, and a returned key replacing an existing one.
+  - **Decisions:** the state holds ids, not rows, because LangGraph's checkpoint saver can't store a `sqlite3.Row` (tested). The database connection travels as LangGraph's runtime context (`context_schema=Context`, `invoke(..., context=...)`), not in the state. A question is marked used only after its grade. "You choose" picks the first passage in book order with no used question. `input()` stands in for the pause until "Pausing for your answer".
+  - **The user's node names:** `pick_passage`, `pick_question`, `ask_question`, `grades`, `show_results`. Routing functions return these names.
+  - **The real run:** "You choose" picked passage 1 of "1 Introduction", wrote 3 questions (1,624 tokens, every quote passed), and graded the answer "i dont know" as incorrect, with 2 real quotes and the 3 key points as missing. Question 1 is used; questions 2 and 3 wait in the pool.
+  - **Check questions:** skipped at the user's request.
 
 ## Rebuild results
 - **Concept "A rough first version in one file":** the rebuild of `main()` was never recorded.
@@ -29,8 +36,12 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 
 ## Open questions
 - **The five test answers in `scripts/regrade.py`** and the verdict each should get were written by Claude. PLAN.md makes them the user's call, and the user hasn't reviewed them yet.
-- **For the M1 concept "The study loop: state, nodes, edges":** `grade_answer()` raises `ValueError` on an empty answer (the loop asks again before calling it) and `FreeLimitReached` when Groq's free tier runs out. `supported=False` means the screen shows "I couldn't find support for this grade" instead of the grade.
-- **For the M1 concept "Conditional edges":** `write_questions()` can fail in two ways, and routing must handle both: no quote passes (0 kept), or the call itself fails, for example when the LLM returned 1 question instead of 3 and Pydantic refused it.
+- **For the M1 concept "Conditional edges":**
+  - Today two cases raise `TurnStopped` and end the turn: a typed topic `search()` finds nothing for, and a passage where no written question passes its quote check. Routing replaces both raises.
+  - `write_questions()` can fail in two ways, and routing must handle both: no quote passes (0 kept), or the call itself fails, for example when the LLM returned 1 question instead of 3 and Pydantic refused it.
+  - To decide: is a skipped passage skipped forever? If so, the skip is saved and `next_new_passage()` leaves skipped passages out; otherwise "You choose" would pick the same failing passage every time.
+  - To decide: the "the material doesn't cover this" route isn't in that concept's PLAN.md row yet; Claude proposed adding it there.
+- **For the M1 concept "Pausing for your answer":** restoring a saved `GradedAnswer` (and the `Grade` inside it) prints LangGraph's warning "Deserializing unregistered type … This will be blocked in a future version". The checkpointer's serializer needs these types allowed (`allowed_msgpack_modules`).
 - **"According to the passage" in questions:** about 4 in 10 questions mention the passage, which the learner never sees. Two prompt wordings, reasoning "medium" and gpt-oss-120b didn't fix it. Accepted as a known limit. Gemini Flash wasn't tried during grading; it needs a free Google AI Studio key and a change to the PLAN.md decision "LLM: Groq free tier". `scripts/check_questions.py --model …` compares models.
 - **The quote comes last in `Question`,** so it can't shape the question: the LLM has already written the question when it picks the quote. Moving `quote` first (as `Grade` does with its quotes) might cut questions the passage can't answer. Untested; `check_questions.py` can't measure it, because it only checks quotes.
 - **Quotes cut mid-sentence** can drop a "not" and still pass. The prompt asks for whole sentences, and 1 quote in 29 still started mid-sentence. If the check script shows more, code could require a quote to start at a sentence start.

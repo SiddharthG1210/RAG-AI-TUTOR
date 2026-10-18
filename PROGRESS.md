@@ -114,3 +114,20 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - `tests/test_grading.py` checks the code with a fake LLM, on every pull request. `scripts/regrade.py` checks the real LLM's judgement, and I run it by hand after changing the prompt.
 - My own idea: after a break, "You choose" could give me nothing but overdue reviews, because reviews come before new passages. Many spaced-repetition apps cap reviews per day, so that's now a decision to make before M4 ("Daily review cap" in PLAN.md).
 - `git add -A` stages every change at once. It's safe after `git status` shows exactly what "every" means, because `.gitignore` keeps `.env`, `data/` and `scratch/` out.
+
+### The study loop: state, nodes, edges (2026-10-18)
+**Did:** went through the big picture of the loop first, then ran a tiny 3-step graph in `scratch/` to watch the state grow. Wrote `State` and `build_graph()`, fixed my edges after the compile error, and ran my first real study turn: the tutor picked chapter 1's first passage, wrote 3 questions about it, asked me one, and graded my "i dont know" as incorrect.
+**Learned:**
+- The study loop joins the separate machines (search, question writing, grading) into one turn. My `main()` in the rough first version did the same job; the study loop is the real version of it.
+- Why LangGraph and not a plain function: `input()` works because the terminal can sit and wait, but in a browser every click is a new request, so the function has to end before I answer. LangGraph saves the values when it pauses and picks up from the same spot later. Before LangGraph, people built this by hand with a "step" column and a big if/else (a state machine), and many still do for small flows.
+- **State:** a value goes in the state when one step makes it and a later step needs it. `State` is only the list of allowed keys, like a blank form; LangGraph makes the real dict when `invoke()` starts.
+- **Node:** a plain function that reads the state and returns only the keys it changed. LangGraph merges them in like `dict.update()`: a new key is added, an existing one is replaced. A key that isn't in `State` is silently dropped, with no error.
+- **Edge:** says which node runs next. Edges connect node *names*, not functions, so a name in `add_edge` that no `add_node` created fails with "Found edge starting at unknown node".
+- Only the node's own `return` goes into the state. What the tools inside it return are just local variables.
+- The tools don't "have" the database connection: `conn` is a parameter, so whoever calls them must pass it. The starter opens it once, and it travels to the nodes as LangGraph's runtime context, not in the state, because no step makes it and it can't be saved.
+- The state keeps ids, not database rows, because LangGraph's saver can't store a row. A node that needs the row reads it from the database by its id.
+- A question counts as used only after it's graded, so a question I stop before answering comes back next time.
+- `scripts/study.py` is the start button for one turn. `--topic` lets me type the topic in the run command instead of editing the code.
+- A custom exception (`TurnStopped`) lets the starter catch only the stops we planned, and print their message. A real bug still crashes with a full traceback.
+- Arguments can be passed by position or by name: `StateGraph(State, Context)` and `StateGraph(State, context_schema=Context)` are the same call; the name only helps the reader.
+- My own ideas, now Proposed decisions in PLAN.md: before a new topic, tell me which topic to read in my own copy of the book (one passage is so short that reading it right before the question only tests short-term memory); and a second pass at the end of each topic, because FSRS schedules the whole passage on a grade that only covers one idea.
