@@ -17,7 +17,13 @@ from pydantic import BaseModel, Field
 
 from tutor import llm
 from tutor.db import connect
-from tutor.llm import FreeLimitReached, complete_structured, load_prompt, strict_schema
+from tutor.llm import (
+    FreeLimitReached,
+    UnusableAnswer,
+    complete_structured,
+    load_prompt,
+    strict_schema,
+)
 
 
 class Item(BaseModel):
@@ -178,10 +184,10 @@ def test_answer_is_parsed_and_its_tokens_logged(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_a_rule_the_schema_cant_carry_is_still_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Three items break max_length=2: Pydantic refuses the answer."""
+    """Three items break max_length=2: Pydantic refuses the answer, raised as UnusableAnswer."""
     items = ", ".join('{"name": "a"}' for _ in range(3))
     use(monkeypatch, FakeClient([response(f'{{"items": [{items}]}}')]))
-    with pytest.raises(ValueError, match="at most 2"):
+    with pytest.raises(UnusableAnswer, match="at most 2"):
         call(connect(":memory:"))
 
 
@@ -198,12 +204,19 @@ def test_an_answer_that_broke_the_schema_is_asked_for_again(
 
 
 def test_a_second_broken_answer_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two json_validate_failed in a row: the error is raised, with no third try."""
+    """Two json_validate_failed in a row: UnusableAnswer is raised, with no third try."""
     client = FakeClient([bad_request("json_validate_failed"), bad_request("json_validate_failed")])
     use(monkeypatch, client)
-    with pytest.raises(openai.BadRequestError):
+    with pytest.raises(UnusableAnswer, match="twice"):
         call(connect(":memory:"))
     assert len(client.requests) == 2
+
+
+def test_an_empty_answer_is_unusable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An answer with no content raises UnusableAnswer instead of returning nothing."""
+    use(monkeypatch, FakeClient([response("")]))
+    with pytest.raises(UnusableAnswer, match="came back empty"):
+        call(connect(":memory:"))
 
 
 def test_any_other_400_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:

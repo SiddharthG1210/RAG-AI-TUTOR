@@ -15,7 +15,8 @@ once got a question with no ``quote``, and Groq answered HTTP 400
 ``json_validate_failed`` instead of the JSON. So the call is sent once more
 after such a failure, and a second failure raises. Pydantic then turns the
 JSON into a Python object and checks the rules the schema can't carry, such
-as "exactly 3".
+as "exactly 3". Every way the answer itself can be unusable raises the same
+error, ``UnusableAnswer``.
 
 **The free tier.** Each call's tokens are logged in the ``llm_calls`` table. On
 HTTP 429 ("too many requests") the call waits as long as Groq's ``retry-after``
@@ -34,7 +35,7 @@ from typing import Any
 
 import openai
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from tutor.config import get_settings
 from tutor.db import log_llm_call
@@ -54,6 +55,20 @@ class FreeLimitReached(Exception):
     """Groq's free-tier limit was hit, and waiting didn't help.
 
     The tutor shows this as "free limit reached" (PLAN.md › Free-tier guard).
+    """
+
+
+class UnusableAnswer(ValueError):
+    """The LLM answered, but its answer can't be used: it broke the schema, or came back empty.
+
+    One error for three causes, so a caller can treat "the LLM's answer was
+    bad" as one case: Groq's ``json_validate_failed`` twice in a row, an empty
+    answer, or Pydantic refusing the JSON (for example 2 questions where
+    ``QuestionSet`` needs exactly 3). The study loop counts it as a failed
+    try at writing questions (M1 concept "Conditional edges"). A refused
+    request, such as an unknown model name, is a different problem and stays
+    an ``openai.BadRequestError``. It's a ``ValueError`` because the value
+    that came back is the problem.
     """
 
 
@@ -203,8 +218,8 @@ def _create_valid(**request: Any) -> Any:
         The SDK's response object.
 
     Raises:
-        openai.BadRequestError: If the second try breaks the schema too, or
-            the request was refused for any other reason.
+        UnusableAnswer: If the second try breaks the schema too.
+        openai.BadRequestError: If the request was refused for any other reason.
     """
     try:
         return _create(**request)
@@ -213,7 +228,13 @@ def _create_valid(**request: Any) -> Any:
         # itself on a second try, so it's raised at once.
         if error.code != "json_validate_failed":
             raise
-    return _create(**request)
+    try:
+        return _create(**request)
+    except openai.BadRequestError as error:
+        if error.code != "json_validate_failed":
+            raise
+        # "from error" keeps Groq's error attached, so the traceback shows both.
+        raise UnusableAnswer("The answer broke the schema twice in a row.") from error
 
 
 def complete_structured[T: BaseModel](
@@ -246,10 +267,10 @@ def complete_structured[T: BaseModel](
 
     Raises:
         FreeLimitReached: If Groq's free-tier limit stops the call.
-        openai.BadRequestError: If the answer breaks the schema twice in a
-            row (``json_validate_failed``), or Groq refuses the request.
-        ValueError: If the answer comes back empty.
-        pydantic.ValidationError: If the answer breaks a rule of the schema.
+        UnusableAnswer: If the answer breaks the schema twice in a row
+            (``json_validate_failed``), comes back empty, or breaks a rule of
+            the schema that only Pydantic checks.
+        openai.BadRequestError: If Groq refuses the request itself.
     """
     response_format = {
         "type": "json_schema",
@@ -275,6 +296,11 @@ def complete_structured[T: BaseModel](
     )
     content = response.choices[0].message.content
     if not content:
-        raise ValueError(f"The {purpose} call to {model} came back empty.")
-    # model_validate_json parses the JSON text and checks every rule in the model.
-    return schema.model_validate_json(content)
+        raise UnusableAnswer(f"The {purpose} call to {model} came back empty.")
+    # model_validate_json parses the JSON text and checks every rule in the
+    # model. A rule it refuses raises pydantic's ValidationError, which is
+    # passed on as UnusableAnswer, with pydantic's message saying which rule.
+    try:
+        return schema.model_validate_json(content)
+    except ValidationError as error:
+        raise UnusableAnswer(f"The {purpose} answer from {model} broke a rule: {error}") from error

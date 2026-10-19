@@ -20,6 +20,8 @@ Tables arrive milestone by milestone (PLAN.md › Data). This module has:
 - **attempts** (M1 concept "Grading grounded in the passage"): one row per
   graded answer, with the grade and what it was based on. The same-answer
   check looks here before calling the LLM.
+- **skipped_passages** (M1 concept "Conditional edges"): passages whose
+  questions failed twice, so the tutor never picks them again.
 """
 
 import json
@@ -115,6 +117,15 @@ CREATE TABLE IF NOT EXISTS attempts (
     model          TEXT    NOT NULL,  -- the grading model, e.g. 'openai/gpt-oss-120b'
     settings       TEXT    NOT NULL,  -- the call's settings, e.g. 'reasoning_effort=medium'
     created_at     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS skipped_passages (
+    -- A passage whose questions failed twice in a row, so it's never picked
+    -- again. A table of its own, not a column on passages, because "CREATE
+    -- TABLE IF NOT EXISTS" never adds a column to a table that already exists.
+    passage_id INTEGER PRIMARY KEY REFERENCES passages(id),
+    reason     TEXT    NOT NULL,  -- why, e.g. 'no question passed its quote check in 2 tries'
+    skipped_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -264,7 +275,7 @@ def list_passages(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def next_new_passage(conn: sqlite3.Connection) -> sqlite3.Row:
-    """Return the first passage in book order that you haven't been asked about yet.
+    """Return the first passage in book order that you haven't been asked about or skipped.
 
     "You choose" uses this when no topic was typed (PLAN.md › What "You
     choose" picks: the next new passage, in book order). A passage is new
@@ -272,6 +283,7 @@ def next_new_passage(conn: sqlite3.Connection) -> sqlite3.Row:
     only after its answer is graded, so a question you stopped before
     answering leaves its passage new, and it comes back next session.
     A passage whose questions were written but never asked is still new.
+    A skipped passage (``save_skip()``) is never new again.
 
     Args:
         conn: An open connection.
@@ -280,12 +292,13 @@ def next_new_passage(conn: sqlite3.Connection) -> sqlite3.Row:
         The passage's row: the same columns as ``list_passages()`` gives.
 
     Raises:
-        ValueError: If every passage has been asked about.
+        ValueError: If every passage has been asked about or skipped.
     """
-    # The same SELECT, JOIN and ORDER BY as list_passages(), plus one filter.
+    # The same SELECT, JOIN and ORDER BY as list_passages(), plus two filters.
     # "NOT EXISTS (subquery)" keeps a passage only if the subquery finds no
-    # row: here, no question of this passage with used = 1. The subquery
-    # runs once per passage, reading that passage's id as passages.id.
+    # row. The first: no question of this passage with used = 1. The second:
+    # the passage isn't in skipped_passages. Each subquery runs once per
+    # passage, reading that passage's id as passages.id.
     # LIMIT 1 keeps only the first passage left, so SQLite can stop there.
     row = conn.execute(
         "SELECT passages.*, topics.number, topics.title "
@@ -294,13 +307,57 @@ def next_new_passage(conn: sqlite3.Connection) -> sqlite3.Row:
         "    SELECT 1 FROM questions "
         "    WHERE questions.passage_id = passages.id AND questions.used = 1"
         ") "
+        "AND NOT EXISTS ("
+        "    SELECT 1 FROM skipped_passages WHERE skipped_passages.passage_id = passages.id"
+        ") "
         "ORDER BY topics.id, passages.position "
         "LIMIT 1"
     ).fetchone()
     # fetchone() gives None when no passage is left.
     if row is None:
-        raise ValueError("Every passage has been asked about: there's no new passage left.")
+        raise ValueError(
+            "Every passage has been asked about or skipped: there's no new passage left."
+        )
     return row
+
+
+def save_skip(conn: sqlite3.Connection, passage_id: int, reason: str) -> None:
+    """Skip a passage for good: neither "You choose" nor a typed topic picks it again.
+
+    The study loop's ``skip_passage`` step calls this when no question about
+    the passage passed its quote check in 2 tries (PLAN.md › Quotes checked in
+    code). The passages stay listed, so a later check can show what went wrong
+    with them (often code or math the PDF step turned into messy text).
+
+    Args:
+        conn: An open connection.
+        passage_id: The passage to skip.
+        reason: Why, e.g. "no question passed its quote check in 2 tries".
+
+    Raises:
+        sqlite3.IntegrityError: If the passage is already skipped (a skipped
+            passage can't be picked, so skipping it twice is a bug), or no
+            passage has that id.
+    """
+    with conn:
+        conn.execute(
+            "INSERT INTO skipped_passages (passage_id, reason) VALUES (?, ?)", (passage_id, reason)
+        )
+
+
+def skipped_passage_ids(conn: sqlite3.Connection) -> set[int]:
+    """Return the ids of every skipped passage.
+
+    ``pick_passage`` uses this to pass over skipped passages among a typed
+    topic's search results.
+
+    Args:
+        conn: An open connection.
+
+    Returns:
+        The skipped passages' ids; an empty set if none is skipped.
+    """
+    return {row["passage_id"] for row in conn.execute("SELECT passage_id FROM skipped_passages")}
 
 
 def save_questions(

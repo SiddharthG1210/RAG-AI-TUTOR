@@ -15,12 +15,28 @@ from typing import Any
 import pytest
 from langgraph.runtime import Runtime
 
-from tutor.db import connect, get_question, list_passages, save_chapter, save_questions
+from tutor.db import (
+    connect,
+    get_question,
+    list_passages,
+    save_chapter,
+    save_questions,
+    save_skip,
+)
 from tutor.grading import Grade, GradedAnswer
 from tutor.graph import nodes
-from tutor.graph.nodes import TurnStopped, ask, grade, pick_passage, pick_question, show
+from tutor.graph.nodes import (
+    ask,
+    grade,
+    not_covered,
+    pick_passage,
+    pick_question,
+    show,
+    skip_passage,
+)
 from tutor.graph.state import Context
 from tutor.ingest.pdf import Paragraph, Topic
+from tutor.llm import FreeLimitReached, UnusableAnswer
 
 GRADE = Grade(
     quotes=["much easier"],
@@ -62,9 +78,16 @@ def setup() -> tuple[sqlite3.Connection, Runtime[Context], list[int]]:
 
 
 def test_you_choose_picks_the_next_new_passage() -> None:
-    """With no topic, the first passage in book order is picked."""
+    """With no topic, the first passage in book order is picked, and its write tries start at 0."""
     _conn, runtime, ids = setup()
-    assert pick_passage({"topic": None}, runtime) == {"passage_id": ids[0]}
+    assert pick_passage({"topic": None}, runtime) == {"passage_id": ids[0], "write_tries": 0}
+
+
+def test_you_choose_passes_over_a_skipped_passage() -> None:
+    """A skipped passage is never new again, so "You choose" moves on to the next one."""
+    conn, runtime, ids = setup()
+    save_skip(conn, ids[0], "no question passed")
+    assert pick_passage({"topic": None}, runtime)["passage_id"] == ids[1]
 
 
 def test_a_typed_topic_picks_the_best_search_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -78,31 +101,54 @@ def test_a_typed_topic_picks_the_best_search_result(monkeypatch: pytest.MonkeyPa
         return [(0.8, second)]
 
     monkeypatch.setattr(nodes, "search", fake_search)
-    assert pick_passage({"topic": "classification"}, runtime) == {"passage_id": ids[1]}
+    assert pick_passage({"topic": "classification"}, runtime) == {
+        "passage_id": ids[1],
+        "write_tries": 0,
+    }
     assert asked == ["classification"]
 
 
-def test_a_topic_the_material_doesnt_cover_stops_the_turn(
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_typed_topic_passes_over_a_skipped_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the best match is skipped, the next best one is picked."""
+    conn, runtime, ids = setup()
+    first, second = list_passages(conn)
+    save_skip(conn, ids[0], "no question passed")
+    monkeypatch.setattr(nodes, "search", lambda _conn, _query: [(0.9, first), (0.8, second)])
+    assert pick_passage({"topic": "classification"}, runtime)["passage_id"] == ids[1]
+
+
+@pytest.mark.parametrize(
+    "skip_both", [False, True], ids=["nothing close", "all close ones skipped"]
+)
+def test_no_passage_for_a_typed_topic_records_none(
+    monkeypatch: pytest.MonkeyPatch, skip_both: bool
 ) -> None:
-    """An empty search result stops the turn with PLAN.md's message."""
-    _conn, runtime, _ids = setup()
-    monkeypatch.setattr(nodes, "search", lambda _conn, _query: [])
-    with pytest.raises(TurnStopped, match="The material doesn't cover this"):
-        pick_passage({"topic": "pizza recipes"}, runtime)
+    """No passage close enough (or only skipped ones): passage_id is None, for routing."""
+    conn, runtime, ids = setup()
+    results: list[tuple[float, Any]] = []
+    if skip_both:
+        for passage_id in ids:
+            save_skip(conn, passage_id, "no question passed")
+        results = [(0.9, row) for row in list_passages(conn)]
+    monkeypatch.setattr(nodes, "search", lambda _conn, _query: results)
+    assert pick_passage({"topic": "pizza recipes"}, runtime) == {
+        "passage_id": None,
+        "write_tries": 0,
+    }
 
 
 def test_a_question_from_the_pool_needs_no_llm_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With questions in the pool, the oldest unused one is picked and nothing is written."""
+    """A full pool: the oldest unused question is picked; nothing is written or counted."""
     conn, runtime, ids = setup()
     save_questions(conn, ids[0], [a_question("First?"), a_question("Second?")], "v")
     monkeypatch.setattr(nodes, "write_questions", lambda *_: pytest.fail("no LLM call expected"))
-    result = pick_question({"passage_id": ids[0]}, runtime)
+    result = pick_question({"passage_id": ids[0], "write_tries": 0}, runtime)
     assert get_question(conn, result["question_id"])["text"] == "First?"
+    assert result["write_tries"] == 0
 
 
 def test_an_empty_pool_is_written_first(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An empty pool calls write_questions() once, then picks from what it saved."""
+    """An empty pool calls write_questions() once, counts the try, then picks from what it saved."""
     conn, runtime, ids = setup()
     written: list[int] = []
 
@@ -114,19 +160,48 @@ def test_an_empty_pool_is_written_first(monkeypatch: pytest.MonkeyPatch) -> None
         return questions
 
     monkeypatch.setattr(nodes, "write_questions", fake_write)
-    result = pick_question({"passage_id": ids[1]}, runtime)
+    result = pick_question({"passage_id": ids[1], "write_tries": 0}, runtime)
     assert written == [ids[1]]
     assert get_question(conn, result["question_id"])["text"] == "Why?"
+    assert result["write_tries"] == 1
 
 
-def test_no_question_passing_its_quote_check_stops_the_turn(
+def test_no_question_passing_its_quote_check_records_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When write_questions() saves nothing, the turn stops with a clear message."""
+    """When write_questions() saves nothing, question_id is None and the try is counted."""
     _conn, runtime, ids = setup()
     monkeypatch.setattr(nodes, "write_questions", lambda *_: [])
-    with pytest.raises(TurnStopped, match="passed the quote check"):
-        pick_question({"passage_id": ids[0]}, runtime)
+    assert pick_question({"passage_id": ids[0], "write_tries": 1}, runtime) == {
+        "question_id": None,
+        "write_tries": 2,
+    }
+
+
+def test_an_unusable_llm_answer_counts_as_a_failed_try(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UnusableAnswer (e.g. 2 questions instead of 3) is caught: a failed try, not a crash."""
+    _conn, runtime, ids = setup()
+
+    def broken_write(_conn: sqlite3.Connection, _passage: sqlite3.Row) -> list[Any]:
+        raise UnusableAnswer("The questions answer broke a rule: 2 questions")
+
+    monkeypatch.setattr(nodes, "write_questions", broken_write)
+    assert pick_question({"passage_id": ids[0], "write_tries": 0}, runtime) == {
+        "question_id": None,
+        "write_tries": 1,
+    }
+
+
+def test_the_free_limit_still_stops_the_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only an unusable answer counts as a failed try; FreeLimitReached goes on to the starter."""
+    _conn, runtime, ids = setup()
+
+    def limited_write(_conn: sqlite3.Connection, _passage: sqlite3.Row) -> list[Any]:
+        raise FreeLimitReached("free limit")
+
+    monkeypatch.setattr(nodes, "write_questions", limited_write)
+    with pytest.raises(FreeLimitReached):
+        pick_question({"passage_id": ids[0], "write_tries": 0}, runtime)
 
 
 def test_ask_prints_the_question_and_asks_again_on_an_empty_answer(
@@ -189,3 +264,19 @@ def test_show_an_unsupported_grade_says_so_instead(capsys: pytest.CaptureFixture
     assert "I couldn't find support for this grade." in out
     assert "Verdict" not in out
     assert "First passage …" in out
+
+
+def test_not_covered_says_so_with_the_topic(capsys: pytest.CaptureFixture[str]) -> None:
+    """PLAN.md's fallback message, naming what you typed."""
+    _conn, runtime, _ids = setup()
+    assert not_covered({"topic": "pizza recipes"}, runtime) == {}
+    assert "The material doesn't cover this: 'pizza recipes'." in capsys.readouterr().out
+
+
+def test_skip_passage_saves_the_skip(capsys: pytest.CaptureFixture[str]) -> None:
+    """The skip lands in the database, so neither picker chooses the passage again."""
+    conn, runtime, ids = setup()
+    assert skip_passage({"passage_id": ids[0]}, runtime) == {}
+    row = conn.execute("SELECT passage_id, reason FROM skipped_passages").fetchone()
+    assert tuple(row) == (ids[0], "no question passed its quote check in 2 tries")
+    assert f"Skipping passage {ids[0]}" in capsys.readouterr().out
