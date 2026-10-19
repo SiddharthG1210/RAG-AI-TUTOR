@@ -4,9 +4,9 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 
 ## Where we are
 - **Milestone:** M1 (v0.1.0), "one question, graded, with the passage shown", in progress.
-- **Done in M1:** concepts 0 to 6 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
-- **Next:** the M1 concept "Conditional edges", on branch `feat/grounding-retry`. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`.
-- **Proposed decisions:** none is needed for "Conditional edges". Before the M1 concept "API and UI": Gradio, and "Read the topic first". Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study".
+- **Done in M1:** concepts 0 to 7 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
+- **Next:** the M1 concept "Pausing for your answer", on branch `feat/answer-interrupt`. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`.
+- **Proposed decisions:** none is needed for "Pausing for your answer". Before the M1 concept "API and UI": Gradio, and "Read the topic first". Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study".
 
 ## Concepts done
 - **"A rough first version in one file"** (2026-10-05): `scratch/first_loop.py`, never committed. The user wrote `main()`; Claude wrote the two inline Groq calls.
@@ -29,6 +29,16 @@ The handoff between sessions: where the last session stopped, what's next, rebui
   - **The user's node names:** `pick_passage`, `pick_question`, `ask_question`, `grades`, `show_results`. Routing functions return these names.
   - **The real run:** "You choose" picked passage 1 of "1 Introduction", wrote 3 questions (1,624 tokens, every quote passed), and graded the answer "i dont know" as incorrect, with 2 real quotes and the 3 key points as missing. Question 1 is used; questions 2 and 3 wait in the pool.
   - **Check questions:** skipped at the user's request.
+- **"Conditional edges"** (PR #10, 2026-10-19):
+  - **The forks:** `pick_passage` → `route_after_pick_passage` → `pick_question`, or `topic_not_covered` → END. `pick_question` → `route_after_pick_question` → `ask_question`; or `pick_question` again (write once more); or, after `MAX_WRITE_TRIES` (2) writes, `skip_the_passage` → `pick_passage`.
+  - **Who wrote what:** the user wrote both routing functions and the conditional edges in `build_graph()`, after a throwaway `scratch/tiny_routing.py` showed one fork taking each arrow. Claude wrote the rest: the nodes recording `None` instead of raising, the `write_tries` counter, the `not_covered` and `skip_passage` nodes, the `skipped_passages` table, `UnusableAnswer` in `llm.py`, and the tests.
+  - **Decisions:**
+    - A skipped passage is skipped for good. The skip is saved in `skipped_passages`, and both pickers leave it out. A skip kept only in the state would put the same failing passage first in every "You choose" session.
+    - "The material doesn't cover this" became a route in this concept.
+    - An unusable LLM answer (`UnusableAnswer`: schema broken twice, empty, or refused by Pydantic) counts as a failed try. `FreeLimitReached` still ends the turn. `TurnStopped` is gone.
+  - **The user's first routing function called the nodes** instead of returning their names. The fix: a routing function only names the next node, and LangGraph runs it. The second review caught a leftover plain edge next to a conditional one; LangGraph would follow both.
+  - **Found by testing:** a routing function returning a name that isn't a node doesn't raise. LangGraph logs "wrote to unknown channel … ignoring it" and the turn ends silently. `tests/test_build.py` checks every returned name is a node.
+  - **Real runs:** "You choose" studied passage 2 (3 questions written, 1,461 tokens; the answer was graded correct). `--topic "pizza recipes"` took the "doesn't cover this" route. The skip route is covered by tests only: it needs the LLM to fail twice.
 
 ## Rebuild results
 - **Concept "A rough first version in one file":** the rebuild of `main()` was never recorded.
@@ -36,11 +46,8 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 
 ## Open questions
 - **The five test answers in `scripts/regrade.py`** and the verdict each should get were written by Claude. PLAN.md makes them the user's call, and the user hasn't reviewed them yet.
-- **For the M1 concept "Conditional edges":**
-  - Today two cases raise `TurnStopped` and end the turn: a typed topic `search()` finds nothing for, and a passage where no written question passes its quote check. Routing replaces both raises.
-  - `write_questions()` can fail in two ways, and routing must handle both: no quote passes (0 kept), or the call itself fails, for example when the LLM returned 1 question instead of 3 and Pydantic refused it.
-  - To decide: is a skipped passage skipped forever? If so, the skip is saved and `next_new_passage()` leaves skipped passages out; otherwise "You choose" would pick the same failing passage every time.
-  - To decide: the "the material doesn't cover this" route isn't in that concept's PLAN.md row yet; Claude proposed adding it there.
+- **Skipped passages can't be listed yet.** PLAN.md says they can be listed to see what went wrong with them; no command does that yet. A small listing fits the M3 grading report, or a check script.
+- **Every passage asked or skipped:** `next_new_passage()` raises `ValueError`, and `scripts/study.py` doesn't catch it, so the end of chapter 1 shows a traceback. Chapter 1 has 49 passages, so it's far off.
 - **For the M1 concept "Pausing for your answer":** restoring a saved `GradedAnswer` (and the `Grade` inside it) prints LangGraph's warning "Deserializing unregistered type … This will be blocked in a future version". The checkpointer's serializer needs these types allowed (`allowed_msgpack_modules`).
 - **"According to the passage" in questions:** about 4 in 10 questions mention the passage, which the learner never sees. Two prompt wordings, reasoning "medium" and gpt-oss-120b didn't fix it. Accepted as a known limit. Gemini Flash wasn't tried during grading; it needs a free Google AI Studio key and a change to the PLAN.md decision "LLM: Groq free tier". `scripts/check_questions.py --model …` compares models.
 - **The quote comes last in `Question`,** so it can't shape the question: the LLM has already written the question when it picks the quote. Moving `quote` first (as `Grade` does with its quotes) might cut questions the passage can't answer. Untested; `check_questions.py` can't measure it, because it only checks quotes.
