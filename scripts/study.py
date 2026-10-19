@@ -10,9 +10,11 @@ opens the database, builds the graph and runs it once, from START to END.
 Unlike the check scripts, it works on the real ``data/tutor.db``: the
 questions it writes, your attempt and the question's "used" mark are kept.
 
-It makes up to two real LLM calls: one to write a passage's questions (only
+It usually makes two real LLM calls: one to write a passage's questions (only
 when its pool is empty) and one to grade your answer (none when you send the
-same answer again).
+same answer again). From the M1 concept "Conditional edges", a passage whose
+questions fail is written once more, and after a second failure it's skipped
+and another passage is picked, so a bad passage adds up to 2 more calls.
 """
 
 import argparse
@@ -21,7 +23,6 @@ from pathlib import Path
 
 from tutor.db import connect
 from tutor.graph.build import build_graph
-from tutor.graph.nodes import TurnStopped
 from tutor.graph.state import Context
 from tutor.llm import FreeLimitReached
 
@@ -41,7 +42,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Run one study turn, and print the message of a turn that has to stop."""
+    """Run one study turn, and print "free limit reached" if Groq's free tier runs out."""
     # Windows terminals sometimes can't print curly quotes in their default encoding.
     sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
@@ -56,9 +57,6 @@ def main() -> None:
         # The state starts as this dict. The connection goes in the context,
         # not the state: every node reads it as runtime.context.conn.
         graph.invoke({"topic": args.topic}, context=Context(conn=conn))
-    except TurnStopped as stopped:
-        # A case with no route yet (see tutor.graph.nodes): show its message.
-        print(f"\n{stopped}")
     except FreeLimitReached:
         print("\nFree limit reached: Groq's free tier is used up for now. Try again later.")
     finally:

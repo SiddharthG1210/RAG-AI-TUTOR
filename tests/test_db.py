@@ -26,6 +26,8 @@ from tutor.db import (
     save_attempt,
     save_chapter,
     save_questions,
+    save_skip,
+    skipped_passage_ids,
 )
 from tutor.grading import Grade
 from tutor.ingest.pdf import Paragraph, Topic
@@ -162,6 +164,26 @@ def test_no_new_passage_left_fails_loudly() -> None:
         mark_asked(conn, passage_id)
     with pytest.raises(ValueError, match="no new passage"):
         next_new_passage(conn)
+
+
+def test_a_skipped_passage_is_never_new_again() -> None:
+    """Skipping passage 1 makes passage 2 the next new one; the skip is listed with its reason."""
+    conn = connect(":memory:")
+    first, second, _ = three_passages(conn)
+    save_skip(conn, first, "no question passed")
+    assert next_new_passage(conn)["id"] == second
+    assert skipped_passage_ids(conn) == {first}
+    row = conn.execute("SELECT reason FROM skipped_passages").fetchone()
+    assert row["reason"] == "no question passed"
+
+
+def test_skipping_a_passage_twice_fails_loudly() -> None:
+    """A skipped passage can't be picked, so a second skip means a bug: it raises."""
+    conn = connect(":memory:")
+    first, _, _ = three_passages(conn)
+    save_skip(conn, first, "no question passed")
+    with pytest.raises(sqlite3.IntegrityError):
+        save_skip(conn, first, "no question passed")
 
 
 def test_the_next_unused_question_is_the_oldest_one_not_yet_asked() -> None:

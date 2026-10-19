@@ -29,16 +29,23 @@ class State(TypedDict):
     which keys it has and the type of each, so LangGraph (and the editor)
     know them.
 
-    The turn: START → pick_passage → pick_question → ask → grade → show → END.
+    The turn: START → pick_passage → pick_question → ask → grade → show → END,
+    with the forks from the M1 concept "Conditional edges" (see build.py).
     """
 
     # Each key: who writes it → who reads it later.
     # The topic you typed, or None for "You choose" (you, at START → pick_passage).
     topic: str | None
-    # The picked passage's id (pick_passage → pick_question, show).
-    passage_id: int
-    # The picked question's id (pick_question → ask, grade).
-    question_id: int
+    # The picked passage's id, or None when nothing is close enough to the
+    # typed topic (pick_passage → its routing function, pick_question, show).
+    passage_id: int | None
+    # The picked question's id, or None when no written question passed its
+    # quote check (pick_question → its routing function, ask, grade).
+    question_id: int | None
+    # How many times this passage's questions were written this turn: reset
+    # to 0 by pick_passage, plus 1 each time pick_question writes
+    # (pick_question → its routing function, which allows 2 tries).
+    write_tries: int
     # Your answer, as typed (ask → grade).
     answer: str
     # What grade_answer() handed back (grade → show).
