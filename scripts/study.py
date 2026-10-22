@@ -1,25 +1,36 @@
-"""Study one turn in the terminal: a question, your typed answer, the grade and the passage.
+"""Study in the terminal: question, your answer, the grade and the passage, then the next turn.
 
 Run from the repo root, after ingesting chapter 1 (it needs the Groq key in ``.env``):
 
     uv run python scripts/study.py                      # "You choose": the next new passage
     uv run python scripts/study.py --topic "gradient descent"
 
-M1 concept "The study loop: state, nodes, edges". This is the starter: it
-opens the database, builds the graph and runs it once, from START to END.
-Unlike the check scripts, it works on the real ``data/tutor.db``: the
-questions it writes, your attempt and the question's "used" mark are kept.
+M1 concepts "The study loop: state, nodes, edges" and "Pausing for your
+answer". This is the starter, and the caller of the graph. The graph stops at
+each pause (``interrupt()``) and hands back what to show you; this script
+shows it, reads what you type, and resumes the graph with it:
 
-It usually makes two real LLM calls: one to write a passage's questions (only
-when its pool is empty) and one to grade your answer (none when you send the
-same answer again). From the M1 concept "Conditional edges", a passage whose
-questions fail is written once more, and after a second failure it's skipped
-and another passage is picked, so a bad passage adds up to 2 more calls.
+    pause "answer": it prints the question and reads your answer
+    pause "next":   it reads the next topic, Enter for "You choose", or s to stop
+
+One run is one study session, with its own id. Unlike the check scripts, it
+works on the real ``data/tutor.db``: the questions it writes, your attempts
+(with the session id) and the questions' "used" marks are kept.
+
+Each turn usually makes two real LLM calls: one to write a passage's
+questions (only when its pool is empty) and one to grade your answer (none
+when you send the same answer again). A passage whose questions fail is
+written once more, and after a second failure it's skipped and another
+passage is picked, so a bad passage adds up to 2 more calls.
 """
 
 import argparse
+import sqlite3
 import sys
+import uuid
 from pathlib import Path
+
+from langgraph.types import Command
 
 from tutor.db import connect
 from tutor.graph.build import build_graph
@@ -33,16 +44,79 @@ def parse_args() -> argparse.Namespace:
     Returns:
         The parsed options.
     """
-    parser = argparse.ArgumentParser(description="Study one turn in the terminal.")
+    parser = argparse.ArgumentParser(description="Study in the terminal, one turn after another.")
     parser.add_argument(
-        "--topic", help='what to study, e.g. "gradient descent"; the next new passage if not given'
+        "--topic",
+        help='what to study first, e.g. "gradient descent"; the next new passage if not given',
     )
     parser.add_argument("--db", type=Path, default=Path("data/tutor.db"), help="the database")
     return parser.parse_args()
 
 
+def read_answer(question: str) -> str:
+    """Show the question at pause 1 and read your answer, asking again until it isn't empty.
+
+    ``grade_answer()`` refuses an empty answer, so asking again here means an
+    empty answer never costs an LLM call.
+
+    Args:
+        question: The question's text, from what the pause handed out.
+
+    Returns:
+        Your answer, as typed.
+    """
+    print(f"\nQuestion: {question}")
+    answer = input("Your answer: ")
+    while not answer.strip():
+        answer = input("Please type an answer: ")
+    return answer
+
+
+def read_next() -> dict:
+    """At pause 2, read the next topic, "You choose" (Enter), or stop (s).
+
+    Returns:
+        The reply ``wait_for_next`` expects: ``{"stop": ..., "topic": ...}``,
+        where ``"topic"`` is ``None`` for "You choose".
+    """
+    line = input('\nNext: type a topic, press Enter for "You choose", or s to stop: ').strip()
+    if line.lower() == "s":
+        return {"stop": True, "topic": None}
+    # An empty line means "You choose"; anything else is a topic to search for.
+    return {"stop": False, "topic": line or None}
+
+
+def run_session(conn: sqlite3.Connection, topic: str | None) -> None:
+    """Run one study session: start the graph, then resume it at every pause until it ends.
+
+    Args:
+        conn: The open connection to the tutor's database.
+        topic: The first turn's topic, or ``None`` for "You choose".
+    """
+    graph = build_graph()
+    # A new id for each run: one run is one session. uuid4() makes a random
+    # id that's practically never repeated; .hex is it as 32 letters/digits.
+    session_id = uuid.uuid4().hex
+    # The thread id tells the checkpointer which paused graph to save and
+    # resume. Ours is the session id.
+    config = {"configurable": {"thread_id": session_id}}
+    # The context isn't saved with the state, so every call hands it over.
+    context = Context(conn=conn, session_id=session_id)
+
+    # Start: the graph runs until its first pause (or its end), then returns.
+    result = graph.invoke({"topic": topic}, config, context=context)
+
+    while "__interrupt__" in result:
+        note = result["__interrupt__"][0].value
+        if note["pause"] == "answer":
+            reply = read_answer(note["question"])
+        else:
+            reply = read_next()
+        result = graph.invoke(Command(resume=reply), config, context=context)
+
+
 def main() -> None:
-    """Run one study turn, and print "free limit reached" if Groq's free tier runs out."""
+    """Run one study session, and print "free limit reached" if Groq's free tier runs out."""
     # Windows terminals sometimes can't print curly quotes in their default encoding.
     sys.stdout.reconfigure(encoding="utf-8")
     args = parse_args()
@@ -53,10 +127,7 @@ def main() -> None:
 
     conn = connect(args.db)
     try:
-        graph = build_graph()
-        # The state starts as this dict. The connection goes in the context,
-        # not the state: every node reads it as runtime.context.conn.
-        graph.invoke({"topic": args.topic}, context=Context(conn=conn))
+        run_session(conn, args.topic)
     except FreeLimitReached:
         print("\nFree limit reached: Groq's free tier is used up for now. Try again later.")
     finally:

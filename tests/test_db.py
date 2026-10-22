@@ -23,6 +23,7 @@ from tutor.db import (
     mark_question_used,
     next_new_passage,
     next_unused_question,
+    passages_asked_in_session,
     save_attempt,
     save_chapter,
     save_questions,
@@ -294,6 +295,18 @@ def test_any_difference_means_no_match(
     save_attempt(conn, question_id, None, "x", "much easier", GRADE, True, "v1", "m", "s")
 
     assert find_attempt(conn, question_id, tidied, version, model, settings) is None
+
+
+def test_passages_asked_in_a_session_are_found_by_its_id() -> None:
+    """An attempt saved with a session id marks its question's passage as asked in that session."""
+    conn = connect(":memory:")
+    question_id = a_question_id(conn)
+    passage_id = list_passages(conn)[0]["id"]
+    assert passages_asked_in_session(conn, "s1") == set()
+    save_attempt(conn, question_id, "s1", "a", "a", GRADE, True, "v", "m", "s")
+    assert passages_asked_in_session(conn, "s1") == {passage_id}
+    # Another session, or no session, doesn't count.
+    assert passages_asked_in_session(conn, "s2") == set()
 
 
 def test_an_unsupported_attempt_is_never_found() -> None:

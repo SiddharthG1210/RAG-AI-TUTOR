@@ -4,8 +4,12 @@ A node is a plain function, so a test can call it directly with a state dict
 and a ``Runtime`` holding our ``Context``, exactly as LangGraph would. No
 request ever reaches Groq: ``monkeypatch`` swaps the two tools that call the
 LLM (``write_questions`` and ``grade_answer``) and ``search`` (which would load
-the embedding model) for fakes, inside ``tutor.graph.nodes`` only, and
-``builtins.input`` for a list of typed lines. The database is in memory.
+the embedding model) for fakes, inside ``tutor.graph.nodes`` only. The
+database is in memory.
+
+The two pausing nodes (``ask`` and ``wait_for_next``) call ``interrupt()``,
+which only works inside a running graph, so ``tests/test_build.py`` tests
+them through the compiled graph.
 """
 
 import sqlite3
@@ -19,6 +23,7 @@ from tutor.db import (
     connect,
     get_question,
     list_passages,
+    save_attempt,
     save_chapter,
     save_questions,
     save_skip,
@@ -26,7 +31,6 @@ from tutor.db import (
 from tutor.grading import Grade, GradedAnswer
 from tutor.graph import nodes
 from tutor.graph.nodes import (
-    ask,
     grade,
     not_covered,
     pick_passage,
@@ -45,6 +49,9 @@ GRADE = Grade(
     extras=["softmax turns scores into probabilities"],
     verdict="partly correct",
 )
+
+SESSION = "session-1"
+"""The session id every test's Context carries."""
 
 
 def a_question(text: str) -> SimpleNamespace:
@@ -74,13 +81,17 @@ def setup() -> tuple[sqlite3.Connection, Runtime[Context], list[int]]:
     ]
     save_chapter(conn, [topic], {"1.3.1.2": passages})
     ids = [row["id"] for row in list_passages(conn)]
-    return conn, Runtime(context=Context(conn=conn)), ids
+    return conn, Runtime(context=Context(conn=conn, session_id=SESSION)), ids
 
 
 def test_you_choose_picks_the_next_new_passage() -> None:
     """With no topic, the first passage in book order is picked, and its write tries start at 0."""
     _conn, runtime, ids = setup()
-    assert pick_passage({"topic": None}, runtime) == {"passage_id": ids[0], "write_tries": 0}
+    assert pick_passage({"topic": None}, runtime) == {
+        "passage_id": ids[0],
+        "write_tries": 0,
+        "nothing_new": False,
+    }
 
 
 def test_you_choose_passes_over_a_skipped_passage() -> None:
@@ -104,6 +115,7 @@ def test_a_typed_topic_picks_the_best_search_result(monkeypatch: pytest.MonkeyPa
     assert pick_passage({"topic": "classification"}, runtime) == {
         "passage_id": ids[1],
         "write_tries": 0,
+        "nothing_new": False,
     }
     assert asked == ["classification"]
 
@@ -114,6 +126,28 @@ def test_a_typed_topic_passes_over_a_skipped_result(monkeypatch: pytest.MonkeyPa
     first, second = list_passages(conn)
     save_skip(conn, ids[0], "no question passed")
     monkeypatch.setattr(nodes, "search", lambda _conn, _query: [(0.9, first), (0.8, second)])
+    assert pick_passage({"topic": "classification"}, runtime)["passage_id"] == ids[1]
+
+
+def test_a_typed_topic_passes_over_a_passage_asked_this_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Typing the same topic again in a session moves on to the next-best passage.
+
+    An answer in another session doesn't count: that passage can come back.
+    """
+    conn, runtime, ids = setup()
+    first, second = list_passages(conn)
+    save_questions(conn, ids[0], [a_question("Why?")], "v")
+    question_id = list(conn.execute("SELECT id FROM questions"))[0]["id"]
+    monkeypatch.setattr(nodes, "search", lambda _conn, _query: [(0.9, first), (0.8, second)])
+
+    def answered_in(session_id: str) -> None:
+        save_attempt(conn, question_id, session_id, "a", "a", GRADE, True, "v", "m", "s")
+
+    answered_in("another session")
+    assert pick_passage({"topic": "classification"}, runtime)["passage_id"] == ids[0]
+    answered_in(SESSION)
     assert pick_passage({"topic": "classification"}, runtime)["passage_id"] == ids[1]
 
 
@@ -131,9 +165,11 @@ def test_no_passage_for_a_typed_topic_records_none(
             save_skip(conn, passage_id, "no question passed")
         results = [(0.9, row) for row in list_passages(conn)]
     monkeypatch.setattr(nodes, "search", lambda _conn, _query: results)
+    # Close passages that were all left out mean "nothing new", not "not covered".
     assert pick_passage({"topic": "pizza recipes"}, runtime) == {
         "passage_id": None,
         "write_tries": 0,
+        "nothing_new": skip_both,
     }
 
 
@@ -204,39 +240,26 @@ def test_the_free_limit_still_stops_the_turn(monkeypatch: pytest.MonkeyPatch) ->
         pick_question({"passage_id": ids[0], "write_tries": 0}, runtime)
 
 
-def test_ask_prints_the_question_and_asks_again_on_an_empty_answer(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Blank lines are refused, so an empty answer never reaches the grader."""
-    conn, runtime, ids = setup()
-    save_questions(conn, ids[0], [a_question("Why probabilities?")], "v")
-    question_id = list(conn.execute("SELECT id FROM questions"))[0]["id"]
-    typed = iter(["", "   ", "it shows how sure the model is"])
-    monkeypatch.setattr("builtins.input", lambda _prompt="": next(typed))
-
-    assert ask({"question_id": question_id}, runtime) == {
-        "answer": "it shows how sure the model is"
-    }
-    assert "Question: Why probabilities?" in capsys.readouterr().out
-
-
 def test_grade_grades_then_marks_the_question_used(monkeypatch: pytest.MonkeyPatch) -> None:
     """grade_answer() gets the question row and the answer; afterwards the question is used."""
     conn, runtime, ids = setup()
     save_questions(conn, ids[0], [a_question("Why?")], "v")
     question_id = list(conn.execute("SELECT id FROM questions"))[0]["id"]
     result = GradedAnswer(attempt_id=1, grade=GRADE, supported=True, reused=False)
-    calls: list[tuple[int, str]] = []
+    calls: list[tuple[int, str, str | None]] = []
 
-    def fake_grade(_conn: sqlite3.Connection, question: sqlite3.Row, answer: str) -> GradedAnswer:
+    def fake_grade(
+        _conn: sqlite3.Connection, question: sqlite3.Row, answer: str, session_id: str | None
+    ) -> GradedAnswer:
         # The question isn't marked used yet while it's being graded.
         assert question["used"] == 0
-        calls.append((question["id"], answer))
+        calls.append((question["id"], answer, session_id))
         return result
 
     monkeypatch.setattr(nodes, "grade_answer", fake_grade)
     assert grade({"question_id": question_id, "answer": "an answer"}, runtime) == {"result": result}
-    assert calls == [(question_id, "an answer")]
+    # The session id goes along, to be saved with the attempt.
+    assert calls == [(question_id, "an answer", SESSION)]
     assert get_question(conn, question_id)["used"] == 1
 
 
@@ -267,10 +290,19 @@ def test_show_an_unsupported_grade_says_so_instead(capsys: pytest.CaptureFixture
 
 
 def test_not_covered_says_so_with_the_topic(capsys: pytest.CaptureFixture[str]) -> None:
-    """PLAN.md's fallback message, naming what you typed."""
+    """Nothing close: PLAN.md's fallback message, naming what you typed."""
     _conn, runtime, _ids = setup()
-    assert not_covered({"topic": "pizza recipes"}, runtime) == {}
+    assert not_covered({"topic": "pizza recipes", "nothing_new": False}, runtime) == {}
     assert "The material doesn't cover this: 'pizza recipes'." in capsys.readouterr().out
+
+
+def test_not_covered_says_when_there_is_nothing_new(capsys: pytest.CaptureFixture[str]) -> None:
+    """Close passages, all asked this session: it says that, not "doesn't cover this"."""
+    _conn, runtime, _ids = setup()
+    not_covered({"topic": "classification", "nothing_new": True}, runtime)
+    out = capsys.readouterr().out
+    assert "Nothing new on 'classification' this session" in out
+    assert "doesn't cover" not in out
 
 
 def test_skip_passage_saves_the_skip(capsys: pytest.CaptureFixture[str]) -> None:

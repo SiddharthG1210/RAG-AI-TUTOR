@@ -1,12 +1,14 @@
 """What the study loop carries from step to step (``State``), and what every step can reach.
 
-``Context`` is what every step can reach: the database connection.
+``Context`` is what every step can reach: the database connection and the
+study session's id.
 
 A value goes in the state when one node makes it and a later node needs it.
 LangGraph starts the state from the dict given to ``graph.invoke()``, then
 merges each node's returned dict into it, key by key: a new key is added, an
-existing key is replaced. Each key here is written by exactly one node, so no
-node can overwrite another's work.
+existing key is replaced. Each key here is written by exactly one node (only
+``topic`` has two writers: you at the start, then ``wait_for_next`` after each
+turn), so no node can overwrite another's work by accident.
 
 The state keeps ids, not database rows. From the M1 concept "Pausing for your
 answer", LangGraph saves the state whenever the graph pauses, and its saver
@@ -50,27 +52,42 @@ class State(TypedDict):
     answer: str
     # What grade_answer() handed back (grade → show).
     result: GradedAnswer
+    # True when passages close to the typed topic exist but you've already
+    # been asked about each one this session (or it's skipped), as opposed to
+    # nothing close at all (pick_passage → not_covered, which says which).
+    nothing_new: bool
+    # Your reply at the pause after a turn: True to stop the session
+    # (wait_for_next → its routing function). The same reply sets the next
+    # turn's topic.
+    stop: bool
 
 
 @dataclass(frozen=True)
 class Context:
-    """What every node needs that isn't part of the state: the database connection.
+    """What every node needs that isn't part of the state: the connection and the session id.
 
-    No node makes the connection, and it stays the same for the whole run,
-    so it fails the state's test. It also can't be saved: it's a live link
-    to ``data/tutor.db``, not a value. LangGraph's "runtime context" exists
-    for exactly this. The starter opens the connection and passes it once,
-    as ``graph.invoke(..., context=Context(conn=conn))``, and every node
-    reads it as ``runtime.context.conn``.
+    No node makes either, and both stay the same for the whole session, so
+    they fail the state's test. The connection also can't be saved: it's a
+    live link to ``data/tutor.db``, not a value. LangGraph's "runtime
+    context" exists for exactly this. The starter passes it with every call,
+    as ``graph.invoke(..., context=Context(conn=conn, session_id=...))``:
+    LangGraph saves the state when the graph pauses, but never the context,
+    so a resumed call must hand it over again. Every node reads it as
+    ``runtime.context``.
 
     Attributes:
         conn: The open connection to the tutor's database.
+        session_id: The study session's id. It's also LangGraph's thread id,
+            which names the paused turn to resume, and it's saved with each
+            attempt, so a session's answers can be found again.
     """
 
     conn: sqlite3.Connection
+    session_id: str
 
 
-# graph.invoke({...}, context=Context(conn=conn))      ← you hand LangGraph the Context ONCE
+# graph.invoke({...}, context=Context(conn=..., session_id=...))  ← you hand LangGraph the Context
+#                                                       with EVERY call (a resume too)
 #         │
 #         ▼
 # LangGraph calls each node as  node(state, runtime)    ← it puts the Context inside "runtime"
