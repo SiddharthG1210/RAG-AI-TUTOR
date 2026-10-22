@@ -145,3 +145,18 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - Use `is None`, not `== None`: `None` is one single object, so `is` is the standard check.
 - A skip kept only in the state would be forgotten next session, and "You choose" goes in book order, so the same broken passage would come first every time. That's why the skip is saved in the database.
 - Routing in plain Python costs no tokens. The LLM only writes and grades; code decides where the turn goes.
+
+### Pausing for your answer (2026-10-22)
+**Did:** ran a tiny graph in `scratch/` that stops at `interrupt()` and resumes with my answer. Planned the second pause with Claude, and pushed back on two of its proposals until we found a better one. Wrote both pausing nodes, the routing after the second pause, the new edges with the checkpointer, and the resume loop in `study.py`. Then studied a real 4-turn session.
+**Learned:**
+- `input()` waits inside the program; `interrupt()` doesn't wait at all. It saves the state and **stops** the graph, and `invoke()` returns to whoever called it. The waiting moves out to the caller: `study.py` now, the browser later.
+- A pause takes two `invoke()` calls. Call 1 runs until `interrupt()` and the note goes **out**. Call 2 is `invoke(Command(resume=answer))`: the answer comes **in**.
+- On resume, the paused node runs **again from its first line**, and this time `interrupt()` returns the answer. So a pausing node does nothing before `interrupt()` except harmless reads; a save or an LLM call there would happen twice.
+- LangGraph knows which node paused and resumes it by itself. The caller doesn't, so each node puts a label in its note (`"pause": "answer"` or `"next"`) to say what it wants from me. `interrupt()` only carries the note; it never reads it.
+- `result["__interrupt__"][0].value` just unwraps LangGraph's packaging: a list of pauses, the first one, then the note inside.
+- LangGraph needs four things to build a graph (the state, the nodes, the edges and routing, and a checkpointer for pausing) and three with every call (the input, a config with the thread id, and the context). The context isn't saved at a pause, so it's passed again with every call.
+- The resume loop is `while "__interrupt__" in result:`, and reassigning `result` inside it is what moves from one pause to the next. Python checks the condition again at the top of every round.
+- `x = a , b` makes a tuple: a misplaced `)` turned my result into a pair.
+- A node does work and writes the state; a routing function only reads it and names the next node. `wait_for_next` gets my reply, and `route_after_wait_for_next` decides stop or go on. The "typed topic or You choose" choice stays in `pick_passage`.
+- My idea: after a turn, ask for a topic again instead of forcing "You choose". It only fully works combined with skipping passages already asked this session, because asking twice about the same passage tests what I read seconds ago.
+

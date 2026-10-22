@@ -7,7 +7,7 @@
   "footer": "Drawn from PLAN.md as of 22 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
-  "start": "m1-8",
+  "start": "m1-9",
   "milestones": [
     {"n": 0, "short": "Setup", "title": "Setup", "ver": "", "items": [
       {"id": "m0-1", "name": "Tooling: uv, ruff and pytest", "who": null, "youLabel": "you did", "claudeLabel": "Claude did", "why": "One command builds the same environment on your laptop and on CI.", "you": "Ran `uv sync`, `uv run pytest` and the ruff checks.", "claude": "`pyproject.toml`, `.python-version` and the smoke test.", "files": ["pyproject", "uvlock", "pyver", "tests"], "tools": ["uv", "ruff", "pytest"]},
