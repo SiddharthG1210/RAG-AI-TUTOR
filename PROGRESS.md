@@ -131,3 +131,17 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - A custom exception (`TurnStopped`) lets the starter catch only the stops we planned, and print their message. A real bug still crashes with a full traceback.
 - Arguments can be passed by position or by name: `StateGraph(State, Context)` and `StateGraph(State, context_schema=Context)` are the same call; the name only helps the reader.
 - My own ideas, now Proposed decisions in PLAN.md: before a new topic, tell me which topic to read in my own copy of the book (one passage is so short that reading it right before the question only tests short-term memory); and a second pass at the end of each topic, because FSRS schedules the whole passage on a grade that only covers one idea.
+
+### Conditional edges (2026-10-19)
+**Did:** ran a tiny graph in `scratch/` with one fork and watched each arrow get taken (after learning that an unsaved edit doesn't count). Decided with Claude that a passage whose questions fail twice is skipped for good. Wrote both routing functions and the conditional edges in `build_graph()`, then studied passage 2 for real and got my answer graded correct.
+**Learned:**
+- A plain edge always goes to the same node. A conditional edge calls a routing function right after its node finishes, and goes wherever the function says.
+- A routing function only *names* the next node, as a string, and LangGraph runs that node. My first version called the nodes instead and returned nothing. Unlike a node, it never changes the state; it only reads it.
+- So a node that can come up empty records what happened in the state (`question_id = None`, `write_tries = 2`) instead of raising. The routing function has nothing else to look at.
+- "Write once more" is just an edge back to the same node, and a counter in the state stops it from looping forever.
+- A node can't keep its old plain edge next to a new conditional one: LangGraph would follow both, and with no question it would try to ask `None`.
+- Node names are a contract. If a routing function returns a name no node has, LangGraph doesn't crash: it logs a quiet warning and the turn just ends. A test now checks every name.
+- The third case of an if/elif should be a plain `else`. Otherwise Python sees a path where `choice` is never set.
+- Use `is None`, not `== None`: `None` is one single object, so `is` is the standard check.
+- A skip kept only in the state would be forgotten next session, and "You choose" goes in book order, so the same broken passage would come first every time. That's why the skip is saved in the database.
+- Routing in plain Python costs no tokens. The LLM only writes and grades; code decides where the turn goes.

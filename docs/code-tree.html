@@ -115,7 +115,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 19 October 2026 (after conditional edges was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 22 October 2026 (after pausing for your answer was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
     <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after the conditional edges pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the pausing pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -202,17 +202,20 @@ const CHAINS = [
     ]
   },
   {
-    title: "A study turn",
+    title: "A study session",
     when: "uv run python scripts/study.py, or with --topic “gradient descent”",
     steps: [
-      ["build_graph", "the steps, their order and the two forks → a graph that runs them, carrying one state dict"],
-      ["pick_passage", "starts with {topic}: typed → search(), none → next_new_passage(); adds passage_id (None if nothing is close enough)"],
-      ["route_after_pick_passage", "a passage → pick_question; None → topic_not_covered, which prints “the material doesn’t cover this” and ends"],
+      ["run_session", "a new session id; starts the graph, then resumes it at every pause with what you type"],
+      ["build_graph", "the steps, their order, the forks and a checkpointer → a graph that can pause"],
+      ["pick_passage", "starts with {topic}: typed → search(), leaving out passages asked this session; none → next_new_passage(); adds passage_id (None if there’s none)"],
+      ["route_after_pick_passage", "a passage → pick_question; None → topic_not_covered, which says why, then wait_for_next"],
       ["pick_question", "next_unused_question(); an empty pool → write_questions() first; adds question_id (None if none passed) and write_tries"],
       ["route_after_pick_question", "a question → ask_question; none after 1 write → pick_question again; none after 2 → skip_the_passage, then pick_passage"],
-      ["ask", "prints the question, reads your answer with input(); adds answer"],
+      ["ask", "PAUSE 1: interrupt() hands the question out to run_session; on resume it returns your answer; adds answer"],
       ["grade", "grade_answer(), then mark_question_used(); adds result"],
-      ["show", "prints the verdict, what’s missing or wrong, and the passage with its pages"]
+      ["show", "prints the verdict, what’s missing or wrong, and the passage with its pages"],
+      ["wait_for_next", "PAUSE 2: hands out “what next?”; on resume your reply sets topic and stop"],
+      ["route_after_wait_for_next", "stop → END; otherwise → pick_passage, for the next turn with the new topic"]
     ]
   }
 ];
@@ -234,6 +237,7 @@ const TREE = [
         { kind: "fn", sig: "list_passages(conn)", say: "Gives back every passage, in book order." },
         { kind: "fn", sig: "next_new_passage(conn)", say: "Gives back the first passage in book order that you haven’t been asked about or skipped." },
         { kind: "fn", sig: "save_skip(conn, passage_id, reason)", say: "Skips a passage for good, with the reason, so it’s never picked again." },
+        { kind: "fn", sig: "passages_asked_in_session(conn, session_id)", say: "Gives back the ids of the passages you answered a question about in one study session." },
         { kind: "fn", sig: "skipped_passage_ids(conn)", say: "Gives back the ids of every skipped passage." },
         { kind: "fn", sig: "save_questions(conn, passage_id, questions, prompt_version)", say: "Adds checked questions to a passage’s pool, with the version of the prompt that wrote them." },
         { kind: "fn", sig: "list_questions(conn, passage_id)", say: "Gives back every question ever written for a passage, used or not." },
@@ -338,22 +342,25 @@ const TREE = [
     folder: "src/tutor/graph/", note: "the study loop: one turn, step by step",
     files: [
       { name: "state.py", what: "What a turn carries from step to step, and the database connection every step can reach.", items: [
-        { kind: "shape", sig: "State", say: "The five keys a turn carries: your topic, the passage’s id, the question’s id, your answer, and the grade." },
-        { kind: "shape", sig: "Context", say: "Holds the open database connection, handed over once at the start; every step reads it as runtime.context.conn." }
+        { kind: "shape", sig: "State", say: "The keys a turn carries: your topic, the passage’s id, the question’s id, how many times its questions were written, your answer, the grade, why no passage was found, and whether you chose to stop." },
+        { kind: "shape", sig: "Context", say: "Holds the open database connection and the session’s id, handed over with every call; every step reads them as runtime.context." }
       ]},
       { name: "nodes.py", what: "The steps of a turn: each reads the state, calls a tool, and returns its new keys.", items: [
-        { kind: "fn", sig: "pick_passage(state, runtime)", say: "Picks the passage: the closest one to your typed topic that isn’t skipped, or the next new one; None if nothing is close enough." },
+        { kind: "fn", sig: "pick_passage(state, runtime)", say: "Picks the passage: the closest one to your typed topic that isn’t skipped or already asked this session, or the next new one; None if there’s none." },
         { kind: "fn", sig: "pick_question(state, runtime)", say: "Picks the passage’s next unused question, writing a pool first if it’s empty and counting the try; None if none passed." },
-        { kind: "fn", sig: "ask(state, runtime)", say: "Prints the question and reads your answer, asking again if it’s empty." },
-        { kind: "fn", sig: "grade(state, runtime)", say: "Grades your answer, then marks the question as asked." },
+        { kind: "fn", sig: "ask(state, runtime)", say: "Pause 1: hands the question out with interrupt(), and takes your answer back in when the graph is resumed." },
+        { kind: "fn", sig: "grade(state, runtime)", say: "Grades your answer, saving the session id with the attempt, then marks the question as asked." },
         { kind: "fn", sig: "show(state, runtime)", say: "Prints the verdict and what’s missing, wrong or extra (or “I couldn’t find support for this grade”), then the passage with its section and pages." },
-        { kind: "fn", sig: "not_covered(state, runtime)", say: "Prints “the material doesn’t cover this”, with the topic you typed." },
-        { kind: "fn", sig: "skip_passage(state, runtime)", say: "Saves a passage whose questions failed twice as skipped, so it’s never picked again." }
+        { kind: "fn", sig: "not_covered(state, runtime)", say: "Prints “the material doesn’t cover this”, or “nothing new on it this session” when every close passage was already asked." },
+        { kind: "fn", sig: "skip_passage(state, runtime)", say: "Saves a passage whose questions failed twice as skipped, so it’s never picked again." },
+        { kind: "fn", sig: "wait_for_next(state, runtime)", say: "Pause 2: after a turn, asks for the next topic, “You choose”, or stop, and puts your reply in the state." }
       ]},
       { name: "build.py", what: "The wiring: which steps exist, in what order they run, and where the turn forks.", items: [
         { kind: "fn", sig: "route_after_pick_passage(state)", say: "After a passage is picked: on to pick_question, or to topic_not_covered when there’s none." },
+        { kind: "fn", sig: "make_checkpointer()", say: "Makes the in-memory store where a paused graph’s state waits, allowed to rebuild Grade and GradedAnswer." },
         { kind: "fn", sig: "route_after_pick_question(state)", say: "After a question is picked: ask it, write the questions once more, or skip the passage after 2 failed tries." },
-        { kind: "fn", sig: "build_graph()", say: "Adds the seven steps (pick_passage, pick_question, ask_question, grades, show_results, topic_not_covered, skip_the_passage), joins them with edges and the two forks, and compiles the graph." }
+        { kind: "fn", sig: "route_after_wait_for_next(state)", say: "After the pause at the end of a turn: END if you chose to stop, otherwise pick_passage for the next turn." },
+        { kind: "fn", sig: "build_graph()", say: "Adds the eight steps (pick_passage, pick_question, ask_question, grades, show_results, topic_not_covered, skip_the_passage, wait_for_next), joins them with edges and the three forks, and compiles the graph with a checkpointer." }
       ]}
     ]
   },
@@ -398,8 +405,11 @@ const TREE = [
         { kind: "fn", sig: "last_call_id(conn)", say: "Where the token log ends right now." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
       ]},
-      { name: "study.py", what: "Study one turn in the terminal: a question, your answer, the grade and the passage, all kept in the real database.", items: [
-        { kind: "fn", sig: "main()", say: "Opens the database, builds the graph and runs one turn; prints “free limit reached” if Groq’s free tier runs out." },
+      { name: "study.py", what: "Study in the terminal, one turn after another, all kept in the real database.", items: [
+        { kind: "fn", sig: "main()", say: "Opens the database and runs one session; prints “free limit reached” if Groq’s free tier runs out." },
+        { kind: "fn", sig: "run_session(conn, topic)", say: "Starts the graph with a new session id, then at every pause shows what it handed out, reads your reply and resumes it, until it ends." },
+        { kind: "fn", sig: "read_answer(question)", say: "Prints the question and reads your answer, asking again if it’s empty." },
+        { kind: "fn", sig: "read_next()", say: "Reads the next topic, Enter for “You choose”, or s to stop." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --topic." }
       ]}
     ]

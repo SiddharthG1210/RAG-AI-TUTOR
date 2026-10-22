@@ -345,6 +345,32 @@ def save_skip(conn: sqlite3.Connection, passage_id: int, reason: str) -> None:
         )
 
 
+def passages_asked_in_session(conn: sqlite3.Connection, session_id: str) -> set[int]:
+    """Return the ids of the passages you've answered a question about in one study session.
+
+    ``pick_passage`` leaves these out for a typed topic, so typing the same
+    topic again in the same session moves on to the next-best passage
+    instead of asking about the one you just read (PLAN.md › Decisions ›
+    Reviews: one question per passage per session).
+
+    Args:
+        conn: An open connection.
+        session_id: The session's id (LangGraph's thread id), saved with each attempt.
+
+    Returns:
+        The passages' ids; an empty set at the start of a session.
+    """
+    # An attempt points at its question, and the question at its passage, so
+    # the JOIN reads each attempt's passage. DISTINCT lists each passage once.
+    rows = conn.execute(
+        "SELECT DISTINCT questions.passage_id FROM attempts "
+        "JOIN questions ON questions.id = attempts.question_id "
+        "WHERE attempts.session_id = ?",
+        (session_id,),
+    )
+    return {row["passage_id"] for row in rows}
+
+
 def skipped_passage_ids(conn: sqlite3.Connection) -> set[int]:
     """Return the ids of every skipped passage.
 
