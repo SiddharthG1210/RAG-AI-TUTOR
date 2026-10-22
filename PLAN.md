@@ -33,7 +33,7 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 |---|---|---|
 | Topic | The smallest numbered heading above a passage, read from the PDF's bookmarks | About 20 topics in chapter 1. The Summary and Exercises sections are skipped |
 | Passage | 120–350 words of whole paragraphs, never crossing a topic boundary | Stores its topic and page range. The cap of 350 keeps nearly every passage inside the embedding model's limit of 512 tokens (about 380 words of plain prose). The model drops anything past the limit, header included, so search can't see the end of a longer passage, though its stored text stays whole; the ingest command lists every such passage (chapter 1 has one, 15 tokens over). Edge cases, decided in the M1 concept "Chunking": a paragraph split by a page break is glued back first; a short last passage borrows paragraphs from the one before it; a topic under 120 words stays one short passage, listed in the ingest summary; a single paragraph over 350 words stops the ingest, and splitting it at a sentence end is written when a chapter first needs it |
-| Reviews | A new question from the same passage, taken from a pool of 3 | The scheduled item (the FSRS card) is the passage. One LLM call writes 3 questions the first time a passage is studied, and the pool is refilled when it runs out, with the passage's earlier questions sent along so they aren't repeated. A session asks only one question per passage. Questions are never written in advance for the whole book |
+| Reviews | A new question from the same passage, taken from a pool of 3 | The scheduled item (the FSRS card) is the passage. One LLM call writes 3 questions the first time a passage is studied, and the pool is refilled when it runs out, with the passage's earlier questions sent along so they aren't repeated. A session asks only one question per passage: a topic typed again in the same session moves on to its next-best passage, and when every close passage has been asked, the tutor says there's nothing new on it this session. Questions are never written in advance for the whole book |
 | Extra facts in an answer | Grade only what the question asks | Extras the passage doesn't cover get a note and no penalty. Extras that contradict it count as errors |
 | "Grade is wrong" | You pick the right grade | Your grade is used for scheduling and for repeated answers. The grading report lists it as a disagreement, but its agreement figure comes only from a fixed sample of grades (M3 "Measuring the grader") |
 | Answer type | Typed and multiple choice | MC arrives in M3. Each session: typed, MC or mixed (about every third question is MC). MC is graded in code, with no LLM call |
@@ -86,10 +86,12 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 - **Pausing for your answer:** the study loop is split across web requests.
   - "Start" runs the graph until it pauses, saves the state and returns the question.
   - "Answer" loads the state and resumes from the same spot.
-  - The loop pauses twice per question: for your answer, and after the grade until you press Next or Stop. "Grade is wrong", "Flag" and Ask the book happen during the second pause, so scheduling always uses your final grade.
+  - The loop pauses twice per question: for your answer, and after the grade until you choose what's next: a topic, "You choose", or Stop. It's the same choice as at the start, so a new topic can follow any turn. "Grade is wrong", "Flag" and Ask the book happen during the second pause, so scheduling always uses your final grade.
+  - A topic the material doesn't cover doesn't end the session: the second pause asks for another one.
   - On resume, LangGraph re-runs the paused node from its start. So a node that pauses does nothing before it calls `interrupt()`: a database write or an LLM call placed there would happen twice.
   - LangGraph's `interrupt` needs a checkpointer: an in-memory one in M1, SQLite from M6, so sessions survive a restart.
-  - Each study session has its own id (LangGraph's thread id), which the page sends with every request.
+  - Each study session has its own id (LangGraph's thread id), which the page sends with every request. It's saved with every attempt, so the passages asked in a session can be found.
+  - The context (the database connection and the session id) isn't saved with the state, so every call, a resume included, passes it again.
 - **Topic search:**
   - A typed topic is embedded and matched against the passages by meaning. It gets bge's query prefix ("Represent this sentence for searching relevant passages: "); passages don't.
   - Each passage is embedded with its section number and title in front (for example "1.3.1.2 Classification"), so a passage that says "this method" still carries its context. The stored text, which the quote check uses, stays unchanged.
@@ -219,7 +221,8 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
      Save the attempt ............................. SQLite           M1
      │
      ▼
-  g. PAUSE until "Next" or "Stop" ................. LangGraph        M1
+  g. PAUSE until you pick: a topic, "You choose" .. LangGraph        M1
+     or "Stop"
      Meanwhile you may:
      • click "Grade is wrong" or "Flag" ........... SQLite           M3
      • ask the book a question: an agent .......... LLM agent        M2
@@ -340,7 +343,7 @@ scratch/           (ignored by git) first_loop.py, the rough first version (M1 c
 | 5 | Grading grounded in the passage | feat/grading | The grading prompt and the `Grade` schema (quotes, what's missing, what's wrong, unchecked extras, and the verdict last). Five test answers (correct, partly correct, wrong, correct with an extra fact, off-topic) and the grade each should get | The same-answer check, the attempts table, the "no support found" path. `scripts/regrade.py`: it re-grades the test answers after any change to `prompts/grader.md` and lists every grade that changed |
 | 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5, the lookups they need (the next new passage, the next unused question), `scripts/study.py` to run one turn in the terminal, tests |
 | 7 | Conditional edges | feat/grounding-retry | The routing functions: after a passage is picked (pick a question, or "the material doesn't cover this"), and after a question is picked (ask, write again once, or skip the passage), plus the conditional edges in `build_graph()` | Retry counters, the "doesn't cover this" and skip nodes, the skipped-passages table, one error for an unusable LLM answer, tests |
-| 8 | Pausing for your answer | feat/answer-interrupt | The node that calls `interrupt()`, and resuming | The in-memory checkpointer, session ids, resuming in `scripts/study.py` |
+| 8 | Pausing for your answer | feat/answer-interrupt | The two pausing nodes (`interrupt()` for your answer, and for what's next), the routing after the second pause, the edges and the checkpointer in `build_graph()`, and the resume loop in `scripts/study.py` | The in-memory checkpointer, session ids (saved with each attempt), skipping passages already asked this session for a typed topic, reading your typed replies, tests |
 | 9 | API and UI | feat/web-ui | Claude writes it all | FastAPI routes, the Gradio page. Submit is disabled while an answer is being graded (How the tutor behaves › Same answer, same grade) |
 
 **Done when:**

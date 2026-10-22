@@ -2,9 +2,9 @@
   "title": "Study Tutor Map",
   "name": "Study Tutor",
   "mark": "Map",
-  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 19 October 2026",
+  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 22 October 2026",
   "lede": "Every concept you’ll build, the file it lives in, and the tool that does the work, all linked. Pick anything to see what it touches.",
-  "footer": "Drawn from PLAN.md as of 19 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
+  "footer": "Drawn from PLAN.md as of 22 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
   "start": "m1-8",
@@ -24,7 +24,7 @@
       {"id": "m1-5", "num": 5, "name": "Grading grounded in the passage", "who": "you", "why": "Grades come only from the passage, and the same answer always gets the same grade.", "you": "The grading prompt, the `Grade` schema, and five test answers with the grade each should get.", "claude": "The same-answer check, the attempts table, the “no support found” path, `scripts/regrade.py`.", "files": ["grading", "p-gr", "s-regrade", "dbpy"], "tools": ["groq", "pydantic", "sqlite"]},
       {"id": "m1-6", "num": 6, "name": "The study loop: state, nodes, edges", "who": "you", "why": "Turns separate functions into one loop that runs step by step.", "you": "The state and the `build_graph()` wiring.", "claude": "Node functions that call concepts 1–5, the lookups they need (the next new passage, the next unused question), `scripts/study.py` to run one turn, tests.", "files": ["state", "nodes", "build", "s-study", "dbpy", "tests"], "tools": ["langgraph", "sqlite", "pytest"]},
       {"id": "m1-7", "num": 7, "name": "Conditional edges", "who": "you", "why": "Plain code decides the next step, so routing costs no tokens.", "you": "The routing functions: after a passage is picked (pick a question, or “the material doesn’t cover this”), and after a question is picked (ask, write again once, or skip the passage), plus the conditional edges in `build_graph()`.", "claude": "Retry counters, the “doesn’t cover this” and skip nodes, the skipped-passages table, one error for an unusable LLM answer, tests.", "files": ["build", "nodes", "state", "dbpy", "llm", "tests"], "tools": ["langgraph", "sqlite", "pytest"]},
-      {"id": "m1-8", "num": 8, "name": "Pausing for your answer", "who": "you", "why": "The loop has to wait for you across separate web requests.", "you": "The node that calls `interrupt()`, and resuming.", "claude": "The in-memory checkpointer, session ids, resuming in `scripts/study.py`.", "files": ["nodes", "build", "s-study"], "tools": ["langgraph"]},
+      {"id": "m1-8", "num": 8, "name": "Pausing for your answer", "who": "you", "why": "The loop has to wait for you across separate web requests.", "you": "The two pausing nodes (`interrupt()` for your answer, and for what’s next), the routing after the second pause, the edges and the checkpointer in `build_graph()`, and the resume loop in `scripts/study.py`.", "claude": "The in-memory checkpointer, session ids (saved with each attempt), skipping passages already asked this session for a typed topic, reading your typed replies, tests.", "files": ["nodes", "build", "state", "s-study", "dbpy", "tests"], "tools": ["langgraph", "sqlite", "pytest"]},
       {"id": "m1-9", "num": 9, "name": "API and UI", "who": "claude", "why": "Study in the browser instead of the terminal.", "you": "", "claude": "FastAPI routes and the Gradio page, with Submit disabled while an answer is being graded.", "files": ["main", "ui"], "tools": ["fastapi", "gradio"]}
     ]},
     {"n": 2, "short": "Ask the book", "title": "Ask the book, your first agent", "ver": "v0.2.0", "items": [
@@ -158,7 +158,7 @@
     {"id": "s-check", "name": "check_retrieval.py", "f": "scripts", "ms": 1, "tools": ["bge", "numpy"], "what": "10 test queries plus off-topic ones, to tune the cut-off."},
     {"id": "s-checkq", "name": "check_questions.py", "f": "scripts", "ms": 1, "tools": ["groq", "sqlite"], "what": "Writes questions for 10 passages on a copy of the database: the quote-check pass rate, and a made-up quote and one-word changes rejected."},
     {"id": "s-regrade", "name": "regrade.py", "f": "scripts", "ms": 1, "tools": ["groq"], "what": "Re-grades the regression set after any change to `grader.md` and lists every grade that changed."},
-    {"id": "s-study", "name": "study.py", "f": "scripts", "ms": 1, "tools": ["langgraph", "groq", "sqlite"], "what": "Study one turn in the terminal, on the real database: builds the graph and runs it from START to END."},
+    {"id": "s-study", "name": "study.py", "f": "scripts", "ms": 1, "tools": ["langgraph", "groq", "sqlite"], "what": "Study in the terminal, on the real database: starts a session, then resumes the graph at every pause with what you type, until you stop."},
     {"id": "tests", "name": "test_*.py", "f": "tests", "ms": 0, "tools": ["pytest"], "what": "One test file per module. A fake stands in for the LLM, because CI has no API key."},
     {"id": "d-pdf", "name": "d2l-en.pdf", "f": "data", "ms": 0, "tools": ["pymupdf"], "what": "The book: Dive into Deep Learning, CC BY-SA 4.0. 45 MB, so it stays out of git."},
     {"id": "d-db", "name": "tutor.db", "f": "data", "ms": 1, "tools": ["sqlite"], "what": "The SQLite database the tutor writes."},
@@ -178,7 +178,7 @@
       {"id": "f3", "step": "3", "label": "Wait for your answer", "ms": 1, "grows": [6], "text": "The graph pauses with `interrupt()`, and its state is saved until your answer arrives in a new web request.", "tools": ["langgraph", "gradio", "fastapi"], "files": ["nodes", "build", "ui", "main"]},
       {"id": "f4", "step": "4", "label": "Grade it", "ms": 1, "grows": [3, 5], "text": "An answer seen before reuses its grade. A typed answer is graded by the LLM against the passage; multiple choice is checked in code (M3). From M5 the mistake gets tagged.", "tools": ["sqlite", "groq", "pydantic"], "files": ["grading", "p-gr", "mc", "mistakes"]},
       {"id": "f5", "step": "5", "label": "Show grade and passage", "ms": 1, "grows": [], "text": "The grade, what’s missing or wrong, and the passage it was based on, with its page and section number.", "tools": ["gradio", "fastapi"], "files": ["ui", "main"]},
-      {"id": "f6", "step": "6", "label": "Next, Stop, or ask", "ms": 1, "grows": [2, 3], "text": "A second pause. Meanwhile you can mark the grade wrong or flag the question (M3), or ask the book a question (M2): an agent searches up to 3 times and answers with checked citations.", "tools": ["langgraph", "groq", "sqlite"], "files": ["feedback", "ask", "agent", "p-ask"]},
+      {"id": "f6", "step": "6", "label": "Next, Stop, or ask", "ms": 1, "grows": [2, 3], "text": "A second pause: type a topic, choose “You choose”, or Stop. Meanwhile you can mark the grade wrong or flag the question (M3), or ask the book a question (M2): an agent searches up to 3 times and answers with checked citations.", "tools": ["langgraph", "groq", "sqlite"], "files": ["feedback", "ask", "agent", "p-ask"]},
       {"id": "f7", "step": "7", "label": "Save and schedule", "ms": 1, "grows": [4, 6], "text": "Your final grade is saved, and FSRS decides when this passage comes back (M4). Next goes back to step 1; Stop lets you resume later (M6).", "tools": ["sqlite", "fsrs", "langgraph"], "files": ["dbpy", "scheduling", "d-db", "d-ckpt"]}
     ]
   }
