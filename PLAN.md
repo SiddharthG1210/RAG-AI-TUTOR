@@ -76,6 +76,9 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
   - The check proves the quote is in the passage, not that it supports the question or the grade. Flags (M3) catch those.
   - If none of a passage's 3 questions pass, the LLM writes them once more, and a second failure skips the passage for good: the skip is saved, so neither "You choose" nor a typed topic picks it again, and the skipped passages can be listed to see what went wrong with them. An LLM answer that can't be used at all (it broke the schema, or came back empty) counts as a failed try too.
   - If a grade's quotes fail, the tutor says "I couldn't find support for this grade".
+- **Questions never mention the passage:** you see only the question, never the passage it came from, so "According to the passage, why…" reads oddly. The prompt forbids it, but the LLM still wrote it in about 4 of 10 questions, and two prompt wordings, reasoning "medium" and gpt-oss-120b didn't change that. So code checks it, before the quote check:
+  - A phrase that only points at the passage ("according to the passage", "as described in the passage") is cut. The question still asks the same thing, so its key points and quote still fit.
+  - A question that still mentions the passage, the text or the author ("What does the passage say about…") is dropped, like one whose quote fails. On chapter 1's first questions, that's about 1 in 10.
 - **Prompt versions stored:** a hash of the prompt file is saved with every question and grade, so a change in behavior traces back to the commit that changed the prompt.
 - **Free-tier guard:**
   - Tokens are logged per call and per model per day.
@@ -200,8 +203,10 @@ The steps inside each diagram are lettered.
   c. Get a question about that passage
      • next unused one from its pool of 3 ......... SQLite           M1
      • pool empty? the LLM writes 3 more .......... Groq LLM         M1
-     • code checks each question's quote is ....... Python           M1
-       really in the passage, else drops it
+     • code cuts "according to the passage" ....... Python           M1
+       and drops a question that still mentions
+       the passage, or whose quote isn't really
+       in the passage
        (none pass -> write once more, then skip the passage)
      │
      ▼
