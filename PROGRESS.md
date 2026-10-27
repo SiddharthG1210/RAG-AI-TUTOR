@@ -160,3 +160,25 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - A node does work and writes the state; a routing function only reads it and names the next node. `wait_for_next` gets my reply, and `route_after_wait_for_next` decides stop or go on. The "typed topic or You choose" choice stays in `pick_passage`.
 - My idea: after a turn, ask for a topic again instead of forcing "You choose". It only fully works combined with skipping passages already asked this session, because asking twice about the same passage tests what I read seconds ago.
 
+### API and UI (2026-10-27)
+**Did:** planned the web page with Claude one point at a time: Gradio inside FastAPI, one turn at a time, and the grade travelling in the pause's note. Ran a tiny page in `scratch/` to see the difference between printing and returning. Had Claude build all of it, went through it piece by piece, then studied in the browser.
+**Learned:**
+- The browser and the server are two programs that send each other messages. A click sends the boxes' values to the server, the server runs a Python function, and what it *returns* goes back to the page. A `print()` only shows up in the server's console.
+- A web request has to finish and send its answer, so it can't sit and wait the way `input()` does. The terminal's resume loop gets cut into one pass per click: Start runs the graph to the first pause, and Submit and Next each resume it once.
+- Between clicks, the paused graph waits in the checkpointer under the session id, and the page sends that id back with every click. The state inside `invoke()` is a working copy that's gone when `invoke()` returns, so the checkpointer's saved copy is the only one left. That's why the server builds the graph once: a new graph would come with a new, empty checkpointer.
+- In `reply = interrupt(note)`, the first run stops inside `interrupt()`, before the `=`, so `reply` never gets a value. On resume the node runs again from its first line, and `interrupt()` returns whatever `Command(resume=...)` carried.
+- A pause note can carry more than a question. `shown` holds only what goes on the screen (the grade's parts and the passage, or a message instead), and `wait_for_next` hands it out. So the page and the terminal show the same thing, and neither reads the state.
+- Each click opens its own database connection. Gradio runs every click in a worker thread, and a `sqlite3` connection refuses any thread but the one that opened it. That works because the state holds ids, not rows.
+- The page's internals (`Screen`, `render()`, `gr.update`) are web plumbing. The part that matters for agents is the human-in-the-loop pattern: pause, keep the state under a thread id, resume once per reply.
+- How a passage is picked: a typed topic leaves out the passages I've answered in this session, found through the attempts saved with the session id. So typing the same topic again moves on to the next-best passage, and when every close passage is used, the tutor says there's nothing new. A new session has a new id, so the best passage wins again and gives its next unused question, and an empty pool gets refilled for that same passage.
+
+### Finishing M1: the question wording and v0.1.0 (2026-10-27)
+**Did:** spotted a question in the browser that began "What does the passage say…", decided with Claude how to fix it, and had Claude build the fix. Then released v0.1.0: the version number, the tag and the GitHub Release. Skipped the blank-page exercise.
+**Learned:**
+- Two different checks guard the LLM's questions. Pydantic checks the *shape* (exactly 3 questions, each with its fields) and throws away the whole reply if it's wrong. The quote check checks each question's *content* against the passage, and drops only the one that fails.
+- A rule in a prompt is a request, not a guarantee. The prompt already forbade "the passage", and 4 in 10 questions said it anyway. When a rule matters, code checks it, as it does with quotes.
+- The fix cuts a tacked-on phrase ("according to the passage") and drops a question built around the passage. Dropping alone would have been dangerous: the bad questions came in clusters per passage, and two failed writes skip a passage for good.
+- My idea, a second LLM call that rewrites bad questions, would mostly work. But the rewrite is new LLM output that needs checking again, it costs a call, and no character check can catch a change in meaning. It also isn't an agent: an agent is the LLM choosing its own next step, and here code decides when to call it.
+- A version is three things. The number in `pyproject.toml` (and `uv.lock`, or CI's `uv sync --locked` fails). A git tag: a permanent name on one commit; `-a` makes an annotated tag, with a message, a date and my name, and tags are pushed on their own (`git push origin v0.1.0`). And a GitHub Release: the page on that tag, with notes.
+- Changes that aren't committed don't belong to any branch yet. `git switch -c <branch>` carries them onto the new branch.
+
