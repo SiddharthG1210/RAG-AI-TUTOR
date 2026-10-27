@@ -6,7 +6,7 @@
 [project]
 name = "study-tutor"
 # Matches the latest milestone tag: bumped to 0.1.0 when M1 is tagged, and so on.
-version = "0.0.0"
+version = "0.1.0"
 description = "An adaptive study tutor: questions from your material, grounded grading, spaced reviews."
 readme = "README.md"
 # SPDX identifier. AGPL-3.0 because PyMuPDF (the PDF library) is AGPL-3.0.
