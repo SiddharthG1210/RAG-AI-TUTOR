@@ -43,18 +43,16 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 | PDF library | PyMuPDF | It's AGPL-3.0, so the repo is AGPL-3.0 and its source must be public once the app is hosted |
 | Embeddings | `BAAI/bge-small-en-v1.5` (384 numbers per text, MIT) through `fastembed`, local, on the CPU | fastembed runs the model on ONNX Runtime with no PyTorch, so CI, which installs every dependency on each pull request, and the M7 image stay small. sentence-transformers runs the same model on PyTorch, which pulls several GB of GPU libraries on Linux; it's only worth it for fine-tuning, which isn't planned. Passages and queries must go through the same model: vectors from different models can't be compared, and changing the model means embedding every passage again |
 | Vector store | No vector database: passage vectors are stored in SQLite, and search is a NumPy cosine against every passage | Checking every vector takes about a millisecond even for the whole book (about 2,000 passages); a vector database only pays off at hundreds of thousands of vectors. Only `search()` touches the vectors, so a database can replace its inside later without changing anything else. Chroma is planned as an optional extra after v1.0.0, to learn a vector database's API (Roadmap › After v1.0.0) |
-| UI | **Proposed:** Gradio, mounted inside FastAPI | Confirm before M1 "API and UI" |
+| UI | Gradio, mounted inside FastAPI | Decided in M1 "API and UI". The page is written in Python, and Hugging Face Spaces (the proposed M7 host) runs Gradio natively. Its buttons call Python functions in the server directly, so FastAPI has no study routes: it hosts the page, and later the progress page (M6) and demo mode (M7). The page shows one turn at a time. Apache-2.0 |
 | Python environment | uv | Installs the packages and keeps a lockfile (`uv.lock`), so this machine and CI install exactly the same versions |
 | FSRS ratings | **Proposed:** typed: correct → Good, partly → Hard, incorrect → Again. MC: correct → Hard, wrong → Again | MC counts for less, because recognising an answer is easier than recalling it. A side effect to weigh: in FSRS, Hard raises the passage's difficulty and only Easy lowers it (this mapping never gives Easy), so frequent MC answers would shorten its typed-review intervals. The alternative: MC wrong → Again, MC right → no FSRS update, because recognising an answer doesn't prove you can recall it. Confirm before M4 |
 | Daily review cap | **Proposed:** no cap | "You choose" asks due reviews before anything new (How the tutor behaves › What "You choose" picks), so after a break a session can be nothing but reviews: with 25 passages overdue, no new passage comes until all 25 are done. That's normal in spaced-repetition apps, and many of them cap reviews per day (for example at most 20) so a comeback session isn't overwhelming. Confirm before M4 |
-| Read the topic first | **Proposed:** before a question, tell you which topic to read in your own copy of the book | Shown on the first turn of every session and whenever "You choose" moves into a new topic, for example "Next up: 1.3.1.2 Classification (pages 23–25). Read it in your copy of the book, then press Ready." Not shown for a typed topic, since you picked it yourself. It names a whole topic, not one passage: a passage is about 200 words, so a question straight after reading it would only test what you read seconds ago. Confirm before M1 "API and UI" |
 | Questions on a passage's first study | **Proposed:** a second pass at the end of each topic: question 1 of every passage in the topic, then question 2 of every passage (for 2 passages: P1·q1, P2·q1, P1·q2, P2·q2) | A grade covers only what its question asked, but FSRS schedules the whole passage, so a correct answer on one idea pushes back ideas that were never tested (with FSRS's default settings, a first Good brings the passage back in about 3 days). Other passages sit between a passage's two questions, so the second isn't answered from what you read moments ago. It costs about twice the graded answers on a first run: chapter 1 would need about 100 instead of 49. The alternative is what Reviews says now: one question per passage per session. Confirm before M4 |
 | Mix-up follow-ups | **Proposed:** one single-passage question per topic of the pair, each about what makes that topic different | This keeps the single-passage rule. Confirm before M5 |
 | Sharing (M7) | **Proposed:** a live demo on Hugging Face Spaces (free CPU) in demo mode, preloaded with every chapter that passed its checks, with a demo video as the backup | Confirm before M7 |
 
 ## Tech
-- **Decided:** Python, FastAPI, LangGraph, SQLite, the `fsrs` library, Git and GitHub, PyMuPDF, bge-small-en-v1.5 through fastembed, NumPy (vector search), the Groq free tier, uv, ruff (linting and formatting).
-- **Proposed** (see Decisions): Gradio.
+- **Decided:** Python, FastAPI, Gradio, LangGraph, SQLite, the `fsrs` library, Git and GitHub, PyMuPDF, bge-small-en-v1.5 through fastembed, NumPy (vector search), the Groq free tier, uv, ruff (linting and formatting).
 - **Optional, after v1.0.0:** Chroma.
 - **Implementation choices:**
   - LLM calls go through a thin wrapper around the `openai` SDK, pointed at Groq's OpenAI-compatible URL, so switching provider only means editing `.env`. Most LangGraph tutorials use LangChain chat models instead. Most of our calls are a single structured-output request, though, and Ask the book's tool calls use the same SDK's `tools` parameter, so a thin wrapper is enough and keeps the mechanism visible.
@@ -88,6 +86,7 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
   - "Answer" loads the state and resumes from the same spot.
   - The loop pauses twice per question: for your answer, and after the grade until you choose what's next: a topic, "You choose", or Stop. It's the same choice as at the start, so a new topic can follow any turn. "Grade is wrong", "Flag" and Ask the book happen during the second pause, so scheduling always uses your final grade.
   - A topic the material doesn't cover doesn't end the session: the second pause asks for another one.
+  - What each pause hands out carries everything the caller shows: the question at the first pause; at the second, the grade and the passage, or the message shown instead of a grade. No step of the loop prints, because in the web server a print only reaches the server's console, never the page. So the page and the terminal show the same thing, and neither reads the loop's state.
   - On resume, LangGraph re-runs the paused node from its start. So a node that pauses does nothing before it calls `interrupt()`: a database write or an LLM call placed there would happen twice.
   - LangGraph's `interrupt` needs a checkpointer: an in-memory one in M1, SQLite from M6, so sessions survive a restart.
   - Each study session has its own id (LangGraph's thread id), which the page sends with every request. It's saved with every attempt, so the passages asked in a session can be found.
@@ -121,14 +120,14 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
 | Reusing the grade for a repeated answer | Characters, after tidying | 100% (exact) |
 
 ## How the tutor works (diagrams)
-A `*` marks a proposed tool. The steps inside each diagram are lettered.
+The steps inside each diagram are lettered.
 
 ### Diagram 1: the parts, and which part calls which
 ```
   You, in a browser
      │  click / type
      ▼
-  Gradio page* ........ the screen you use
+  Gradio page ......... the screen you use
      │
      ▼
   FastAPI ............. web server: passes your clicks to the loop
@@ -185,8 +184,8 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
 ### Diagram 3: a study session (WHEN = the milestone that adds each part)
 ```
                                                     TECH             WHEN
-  a. Pick the answer type: typed / MC / mixed ..... Gradio*          M3
-     Type a topic, or click "You choose" .......... Gradio*          M1
+  a. Pick the answer type: typed / MC / mixed ..... Gradio           M3
+     Type a topic, or click "You choose" .......... Gradio           M1
      │
      ▼
   b. Pick a passage
@@ -216,7 +215,7 @@ A `*` marks a proposed tool. The steps inside each diagram are lettered.
      • tag the mistake, spot mix-ups .............. LLM + search     M5
      │
      ▼
-  f. Show the grade, what's missing or wrong, ..... Gradio*          M1
+  f. Show the grade, what's missing or wrong, ..... Gradio           M1
      and the passage with its page number
      Save the attempt ............................. SQLite           M1
      │
@@ -296,7 +295,7 @@ src/tutor/
   questions.py, quotes.py, grading.py (M1) · ask.py (M2) · mc.py, feedback.py, report.py (M3)
   scheduling.py (M4) · mistakes.py, patterns.py (M5)
   graph/           state.py, nodes.py, build.py (M1; grows each milestone) · agent.py (M2)
-  api/             main.py, ui.py (M1) · progress page (M6) · demo.py (M7)
+  api/             main.py, session.py, ui.py (M1) · progress page (M6) · demo.py (M7)
 scripts/           ingest.py, check_retrieval.py, check_questions.py, regrade.py, study.py (M1)
 tests/             one test file per core function
 data/              (ignored by git) the PDF, tutor.db, checkpoints.db, the downloaded embedding model
@@ -344,7 +343,7 @@ scratch/           (ignored by git) first_loop.py, the rough first version (M1 c
 | 6 | The study loop: state, nodes, edges | feat/study-graph | The state and the `build_graph()` wiring | Node functions that call the code from concepts 1–5, the lookups they need (the next new passage, the next unused question), `scripts/study.py` to run one turn in the terminal, tests |
 | 7 | Conditional edges | feat/grounding-retry | The routing functions: after a passage is picked (pick a question, or "the material doesn't cover this"), and after a question is picked (ask, write again once, or skip the passage), plus the conditional edges in `build_graph()` | Retry counters, the "doesn't cover this" and skip nodes, the skipped-passages table, one error for an unusable LLM answer, tests |
 | 8 | Pausing for your answer | feat/answer-interrupt | The two pausing nodes (`interrupt()` for your answer, and for what's next), the routing after the second pause, the edges and the checkpointer in `build_graph()`, and the resume loop in `scripts/study.py` | The in-memory checkpointer, session ids (saved with each attempt), skipping passages already asked this session for a typed topic, reading your typed replies, tests |
-| 9 | API and UI | feat/web-ui | Claude writes it all | FastAPI routes, the Gradio page. Submit is disabled while an answer is being graded (How the tutor behaves › Same answer, same grade) |
+| 9 | API and UI | feat/web-ui | Claude writes it all | The Gradio page, one turn at a time, and the FastAPI app that hosts it. Starting and resuming a session one click at a time. The two pauses handing out what to show (the grade and the passage, or a message), so no step prints. Submit is disabled while an answer is being graded (How the tutor behaves › Same answer, same grade). Tests |
 
 **Done when:**
 - The rough first version asks one question about a pasted paragraph and grades a typed answer.

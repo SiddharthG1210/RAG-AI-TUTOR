@@ -115,7 +115,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 22 October 2026 (after pausing for your answer was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 24 October 2026 (after the web page was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
     <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after the pausing pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the web page pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -189,7 +189,7 @@ const CHAINS = [
   },
   {
     title: "Grading an answer",
-    when: "When you answer a question in scripts/study.py (or a test answer in scripts/regrade.py)",
+    when: "When you answer a question on the page or in scripts/study.py (or a test answer in scripts/regrade.py)",
     steps: [
       ["grade_answer", "starts here with a question row and your typed answer"],
       ["get_passage", "the question’s own passage, by the id stored with the question"],
@@ -205,17 +205,33 @@ const CHAINS = [
     title: "A study session",
     when: "uv run python scripts/study.py, or with --topic “gradient descent”",
     steps: [
-      ["run_session", "a new session id; starts the graph, then resumes it at every pause with what you type"],
+      ["run_session", "a new session id; starts the graph, then at every pause prints what it handed out, reads what you type and resumes it"],
       ["build_graph", "the steps, their order, the forks and a checkpointer → a graph that can pause"],
       ["pick_passage", "starts with {topic}: typed → search(), leaving out passages asked this session; none → next_new_passage(); adds passage_id (None if there’s none)"],
-      ["route_after_pick_passage", "a passage → pick_question; None → topic_not_covered, which says why, then wait_for_next"],
+      ["route_after_pick_passage", "a passage → pick_question; None → topic_not_covered, which packs why as shown, then wait_for_next"],
       ["pick_question", "next_unused_question(); an empty pool → write_questions() first; adds question_id (None if none passed) and write_tries"],
       ["route_after_pick_question", "a question → ask_question; none after 1 write → pick_question again; none after 2 → skip_the_passage, then pick_passage"],
       ["ask", "PAUSE 1: interrupt() hands the question out to run_session; on resume it returns your answer; adds answer"],
       ["grade", "grade_answer(), then mark_question_used(); adds result"],
-      ["show", "prints the verdict, what’s missing or wrong, and the passage with its pages"],
-      ["wait_for_next", "PAUSE 2: hands out “what next?”; on resume your reply sets topic and stop"],
+      ["show", "packs the verdict, what’s missing or wrong, the quotes and the passage with its pages; adds shown"],
+      ["wait_for_next", "PAUSE 2: hands out shown, for the caller to show, and asks “what next?”; on resume your reply sets topic and stop"],
       ["route_after_wait_for_next", "stop → END; otherwise → pick_passage, for the next turn with the new topic"]
+    ]
+  },
+  {
+    title: "Studying in the browser",
+    when: "uv run uvicorn tutor.api.main:create_app --factory, then open http://127.0.0.1:8000",
+    steps: [
+      ["create_app", "checks the database and the key, builds the graph once, and mounts the page at / in a FastAPI app"],
+      ["build_page", "the boxes and buttons, and which function each click calls"],
+      ["on_study", "Study this topic / You choose: no session yet → start_session(); otherwise resume_session() with the next topic"],
+      ["start_session", "a new session id; runs the graph to its first pause"],
+      ["_run", "opens a connection, invoke(), closes it → the pause note (None when the session ended)"],
+      ["screen_after", "the note → a Screen: the question to answer, or the grade, the passage and the choice of what’s next"],
+      ["on_submit", "Submit, greyed out until the grade shows: resume_session() with your answer"],
+      ["resume_session", "checks the session is still paused, then resumes it with your reply → the next note"],
+      ["result_markdown", "shown → the verdict, what’s missing, wrong or extra, and the quotes, as Markdown"],
+      ["on_stop", "Stop: resumes with stop, so the graph ends → the start screen"]
     ]
   }
 ];
@@ -342,7 +358,7 @@ const TREE = [
     folder: "src/tutor/graph/", note: "the study loop: one turn, step by step",
     files: [
       { name: "state.py", what: "What a turn carries from step to step, and the database connection every step can reach.", items: [
-        { kind: "shape", sig: "State", say: "The keys a turn carries: your topic, the passage’s id, the question’s id, how many times its questions were written, your answer, the grade, why no passage was found, and whether you chose to stop." },
+        { kind: "shape", sig: "State", say: "The keys a turn carries: your topic, the passage’s id, the question’s id, how many times its questions were written, your answer, the grade, what the turn shows, why no passage was found, and whether you chose to stop." },
         { kind: "shape", sig: "Context", say: "Holds the open database connection and the session’s id, handed over with every call; every step reads them as runtime.context." }
       ]},
       { name: "nodes.py", what: "The steps of a turn: each reads the state, calls a tool, and returns its new keys.", items: [
@@ -350,10 +366,10 @@ const TREE = [
         { kind: "fn", sig: "pick_question(state, runtime)", say: "Picks the passage’s next unused question, writing a pool first if it’s empty and counting the try; None if none passed." },
         { kind: "fn", sig: "ask(state, runtime)", say: "Pause 1: hands the question out with interrupt(), and takes your answer back in when the graph is resumed." },
         { kind: "fn", sig: "grade(state, runtime)", say: "Grades your answer, saving the session id with the attempt, then marks the question as asked." },
-        { kind: "fn", sig: "show(state, runtime)", say: "Prints the verdict and what’s missing, wrong or extra (or “I couldn’t find support for this grade”), then the passage with its section and pages." },
-        { kind: "fn", sig: "not_covered(state, runtime)", say: "Prints “the material doesn’t cover this”, or “nothing new on it this session” when every close passage was already asked." },
-        { kind: "fn", sig: "skip_passage(state, runtime)", say: "Saves a passage whose questions failed twice as skipped, so it’s never picked again." },
-        { kind: "fn", sig: "wait_for_next(state, runtime)", say: "Pause 2: after a turn, asks for the next topic, “You choose”, or stop, and puts your reply in the state." }
+        { kind: "fn", sig: "show(state, runtime)", say: "Packs what the turn shows: the verdict, what’s missing, wrong or extra, and the quotes (or “I couldn’t find support for this grade”), plus the passage with its section and pages." },
+        { kind: "fn", sig: "not_covered(state, runtime)", say: "Packs “the material doesn’t cover this”, or “nothing new on it this session” when every close passage was already asked." },
+        { kind: "fn", sig: "skip_passage(state, runtime)", say: "Saves a passage whose questions failed twice as skipped, so it’s never picked again, and logs a warning." },
+        { kind: "fn", sig: "wait_for_next(state, runtime)", say: "Pause 2: hands out what the turn shows, then takes your reply (the next topic, “You choose”, or stop) and puts it in the state." }
       ]},
       { name: "build.py", what: "The wiring: which steps exist, in what order they run, and where the turn forks.", items: [
         { kind: "fn", sig: "route_after_pick_passage(state)", say: "After a passage is picked: on to pick_question, or to topic_not_covered when there’s none." },
@@ -361,6 +377,30 @@ const TREE = [
         { kind: "fn", sig: "route_after_pick_question(state)", say: "After a question is picked: ask it, write the questions once more, or skip the passage after 2 failed tries." },
         { kind: "fn", sig: "route_after_wait_for_next(state)", say: "After the pause at the end of a turn: END if you chose to stop, otherwise pick_passage for the next turn." },
         { kind: "fn", sig: "build_graph()", say: "Adds the eight steps (pick_passage, pick_question, ask_question, grades, show_results, topic_not_covered, skip_the_passage, wait_for_next), joins them with edges and the three forks, and compiles the graph with a checkpointer." }
+      ]}
+    ]
+  },
+  {
+    folder: "src/tutor/api/", note: "the study page in the browser",
+    files: [
+      { name: "session.py", what: "Drives a study session from the page: the terminal’s resume loop, one pass per click.", items: [
+        { kind: "shape", sig: "SessionLost", say: "The error raised when the page asks to resume a session the server doesn’t have, as after a restart." },
+        { kind: "fn", sig: "start_session(graph, db_path, topic)", say: "Makes a new session id and runs the graph to its first pause; gives back the id and that pause’s note." },
+        { kind: "fn", sig: "resume_session(graph, db_path, session_id, reply)", say: "Checks the session is still paused, resumes it with your reply, and gives back the next pause’s note, or nothing when it ended." },
+        { kind: "helper", sig: "_config(session_id)", say: "LangGraph’s config naming the thread id the session is saved under." },
+        { kind: "helper", sig: "_run(graph, db_path, session_id, graph_input)", say: "Runs the graph once on a connection of its own, closes it, and gives back the pause note it stopped at." }
+      ]},
+      { name: "ui.py", what: "The Gradio page: its boxes and buttons, what each click does, and what the screen shows.", items: [
+        { kind: "shape", sig: "Screen", say: "What the page shows after a click, as plain values: the session, a status line, the question and your answer, the grade, the passage, and whether you can type or choose." },
+        { kind: "fn", sig: "result_markdown(shown)", say: "Writes the grade as Markdown (the verdict, then what’s missing, wrong or extra, and the quotes), or the message shown instead of one." },
+        { kind: "fn", sig: "screen_after(session_id, note, question, answer)", say: "Turns a pause note into a Screen: the question to answer, or the grade, the passage and the choice of what’s next." },
+        { kind: "fn", sig: "on_study(graph, db_path, session_id, topic)", say: "Study this topic or You choose: starts a session, or resumes the paused one with the next topic." },
+        { kind: "fn", sig: "on_submit(graph, db_path, session_id, …)", say: "Submit: resumes the session with your answer, and shows its grade and passage." },
+        { kind: "fn", sig: "on_stop(graph, db_path, session_id)", say: "Stop: ends the session and goes back to the start screen." },
+        { kind: "fn", sig: "build_page(graph, db_path)", say: "Lays out the boxes and buttons and connects each click to its handler. Inside it, render() turns a Screen into the boxes’ new values, and lock_submit() greys out Submit the moment it’s clicked." }
+      ]},
+      { name: "main.py", what: "The web app: one FastAPI server, with the study page mounted at /.", items: [
+        { kind: "fn", sig: "create_app(db_path)", say: "Checks the database and the key, builds the graph once for the whole server, and mounts the page in a FastAPI app." }
       ]}
     ]
   },
@@ -409,6 +449,7 @@ const TREE = [
         { kind: "fn", sig: "main()", say: "Opens the database and runs one session; prints “free limit reached” if Groq’s free tier runs out." },
         { kind: "fn", sig: "run_session(conn, topic)", say: "Starts the graph with a new session id, then at every pause shows what it handed out, reads your reply and resumes it, until it ends." },
         { kind: "fn", sig: "read_answer(question)", say: "Prints the question and reads your answer, asking again if it’s empty." },
+        { kind: "fn", sig: "print_shown(shown)", say: "Prints what the turn shows: the grade and the passage, or the message shown instead." },
         { kind: "fn", sig: "read_next()", say: "Reads the next topic, Enter for “You choose”, or s to stop." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --topic." }
       ]}
