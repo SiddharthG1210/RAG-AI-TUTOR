@@ -10,6 +10,9 @@ database is in memory.
 The two pausing nodes (``ask`` and ``wait_for_next``) call ``interrupt()``,
 which only works inside a running graph, so ``tests/test_build.py`` tests
 them through the compiled graph.
+
+No node prints (M1 concept "API and UI"): ``show`` and ``not_covered`` return
+what to show as ``shown``, so these tests check the dict they return.
 """
 
 import sqlite3
@@ -263,52 +266,74 @@ def test_grade_grades_then_marks_the_question_used(monkeypatch: pytest.MonkeyPat
     assert get_question(conn, question_id)["used"] == 1
 
 
-def test_show_prints_the_grade_and_the_passage_with_its_pages(
+def test_show_packs_the_grade_and_the_passage_with_its_pages(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A supported grade: the verdict, the non-empty lists, then the passage and page range."""
+    """A supported grade: the verdict, every list, and the passage with its page range."""
     _conn, runtime, ids = setup()
     result = GradedAnswer(attempt_id=1, grade=GRADE, supported=True, reused=False)
-    assert show({"passage_id": ids[1], "result": result}, runtime) == {}
-    out = capsys.readouterr().out
-    assert "Verdict: partly correct" in out
-    assert "Missing:\n  - a firm label is hard to optimize" in out
-    assert "Wrong:" not in out  # an empty list isn't printed
-    assert "1.3.1.2 Classification, page 10–11" in out
-    assert "It is much easier …" in out
+    assert show({"passage_id": ids[1], "result": result}, runtime) == {
+        "shown": {
+            "kind": "graded",
+            "verdict": "partly correct",
+            "reused": False,
+            "missing": ["a firm label is hard to optimize"],
+            "wrong": [],
+            "extras": ["softmax turns scores into probabilities"],
+            "quotes": ["much easier"],
+            "passage": {
+                "section": "1.3.1.2 Classification",
+                "pages": "10–11",
+                "text": "It is much easier …",
+            },
+        }
+    }
+    # Nothing is printed: in the web server it would never reach the page.
+    assert capsys.readouterr().out == ""
 
 
-def test_show_an_unsupported_grade_says_so_instead(capsys: pytest.CaptureFixture[str]) -> None:
-    """An unsupported grade isn't shown; PLAN.md's message is, and the passage still is."""
+def test_show_an_unsupported_grade_packs_the_message_instead() -> None:
+    """An unsupported grade isn't packed; PLAN.md's message is, and the passage still is."""
     _conn, runtime, ids = setup()
     result = GradedAnswer(attempt_id=1, grade=GRADE, supported=False, reused=False)
-    show({"passage_id": ids[0], "result": result}, runtime)
-    out = capsys.readouterr().out
-    assert "I couldn't find support for this grade." in out
-    assert "Verdict" not in out
-    assert "First passage …" in out
+    shown = show({"passage_id": ids[0], "result": result}, runtime)["shown"]
+    assert shown == {
+        "kind": "no_support",
+        "message": "I couldn't find support for this grade.",
+        # A passage on one page shows that one page number.
+        "passage": {"section": "1.3.1.2 Classification", "pages": "9", "text": "First passage …"},
+    }
 
 
-def test_not_covered_says_so_with_the_topic(capsys: pytest.CaptureFixture[str]) -> None:
-    """Nothing close: PLAN.md's fallback message, naming what you typed."""
+def test_not_covered_says_so_with_the_topic() -> None:
+    """Nothing close: PLAN.md's fallback message, naming what you typed, and no passage."""
     _conn, runtime, _ids = setup()
-    assert not_covered({"topic": "pizza recipes", "nothing_new": False}, runtime) == {}
-    assert "The material doesn't cover this: 'pizza recipes'." in capsys.readouterr().out
+    assert not_covered({"topic": "pizza recipes", "nothing_new": False}, runtime) == {
+        "shown": {
+            "kind": "not_covered",
+            "message": "The material doesn't cover this: 'pizza recipes'.",
+        }
+    }
 
 
-def test_not_covered_says_when_there_is_nothing_new(capsys: pytest.CaptureFixture[str]) -> None:
+def test_not_covered_says_when_there_is_nothing_new() -> None:
     """Close passages, all asked this session: it says that, not "doesn't cover this"."""
     _conn, runtime, _ids = setup()
-    not_covered({"topic": "classification", "nothing_new": True}, runtime)
-    out = capsys.readouterr().out
-    assert "Nothing new on 'classification' this session" in out
-    assert "doesn't cover" not in out
+    message = not_covered({"topic": "classification", "nothing_new": True}, runtime)["shown"][
+        "message"
+    ]
+    assert "Nothing new on 'classification' this session" in message
+    assert "doesn't cover" not in message
 
 
-def test_skip_passage_saves_the_skip(capsys: pytest.CaptureFixture[str]) -> None:
-    """The skip lands in the database, so neither picker chooses the passage again."""
+def test_skip_passage_saves_the_skip(caplog: pytest.LogCaptureFixture) -> None:
+    """The skip lands in the database, so neither picker chooses the passage again.
+
+    It's logged as a warning (``caplog`` is pytest's catcher for log lines),
+    not shown on the page.
+    """
     conn, runtime, ids = setup()
     assert skip_passage({"passage_id": ids[0]}, runtime) == {}
     row = conn.execute("SELECT passage_id, reason FROM skipped_passages").fetchone()
     assert tuple(row) == (ids[0], "no question passed its quote check in 2 tries")
-    assert f"Skipping passage {ids[0]}" in capsys.readouterr().out
+    assert f"Skipping passage {ids[0]}" in caplog.text
