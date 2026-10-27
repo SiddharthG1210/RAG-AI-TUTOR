@@ -4,10 +4,10 @@ An adaptive study tutor that quizzes you on your own study material.
 
 It reads the material, writes one question at a time from a single passage, and grades your typed answer against that passage, showing it to you with its page and section number. It never adds facts from outside the material. It also schedules reviews with spaced repetition (FSRS) so you revisit each passage just before you'd forget it, and it notices which ideas you keep mixing up.
 
-> **Status:** in development. The first working version, `v0.1.0`, asks one question, grades it and shows the passage. See [PLAN.md](PLAN.md) for the roadmap to `v1.0.0`.
+> **Status:** `v0.1.0`, the first working version, is out. On chapter 1 of the book, it asks one question at a time, grades your typed answer against the question's passage, and shows that passage with its page, in the browser or the terminal. Next is `v0.2.0`, "Ask the book". See [PLAN.md](PLAN.md) for the roadmap to `v1.0.0`.
 
 ## How it's built
-- **RAG:** PyMuPDF extracts the PDF's text, which is cut into passages. The passages are embedded locally and searched with a vector store.
+- **RAG:** PyMuPDF extracts the PDF's text, which is cut into passages. The passages are embedded locally (bge-small) and stored in SQLite, and a typed topic finds the closest ones by cosine similarity in NumPy.
 - **Agentic loop:** LangGraph runs the study session and pauses while it waits for your answer. Plain code decides every step. The LLM only writes questions and grades answers.
 - **LLM:** Groq's free tier, through the `openai` SDK.
 - **Storage:** SQLite. **Web:** a Gradio page, hosted in a FastAPI app.
