@@ -6,9 +6,11 @@ study session's id.
 A value goes in the state when one node makes it and a later node needs it.
 LangGraph starts the state from the dict given to ``graph.invoke()``, then
 merges each node's returned dict into it, key by key: a new key is added, an
-existing key is replaced. Each key here is written by exactly one node (only
-``topic`` has two writers: you at the start, then ``wait_for_next`` after each
-turn), so no node can overwrite another's work by accident.
+existing key is replaced. Each key here is written by exactly one node, so no
+node can overwrite another's work by accident. Two keys have two writers, but
+never in the same turn: ``topic`` (you at the start, then ``wait_for_next``
+after each turn) and ``shown`` (``show`` after a grade, or ``not_covered``
+when no passage was found).
 
 The state keeps ids, not database rows. From the M1 concept "Pausing for your
 answer", LangGraph saves the state whenever the graph pauses, and its saver
@@ -52,6 +54,13 @@ class State(TypedDict):
     answer: str
     # What grade_answer() handed back (grade → show).
     result: GradedAnswer
+    # What the page (or the terminal) shows at the end of a turn: the grade and
+    # the passage, or a message instead (show or not_covered → wait_for_next,
+    # which hands it out in its pause note). M1 concept "API and UI": a node
+    # can't show anything itself, because in the web server print() only
+    # reaches the server's console. Only plain strings, lists and bools go in
+    # it, so the checkpointer can save it and Gradio can send it to the browser.
+    shown: dict
     # True when passages close to the typed topic exist but you've already
     # been asked about each one this session (or it's skipped), as opposed to
     # nothing close at all (pick_passage → not_covered, which says which).

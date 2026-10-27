@@ -4,9 +4,9 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 
 ## Where we are
 - **Milestone:** M1 (v0.1.0), "one question, graded, with the passage shown", in progress.
-- **Done in M1:** concepts 0 to 7 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
-- **Next:** the M1 concept "Pausing for your answer", on branch `feat/answer-interrupt`. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`.
-- **Proposed decisions:** none is needed for "Pausing for your answer". Before the M1 concept "API and UI": Gradio, and "Read the topic first". Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study".
+- **Done in M1:** concepts 0 to 8 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
+- **Next:** the M1 concept "API and UI", on branch `feat/web-ui`, the last concept of M1. PLAN.md: Claude writes it all, the user explains it back. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`. After it: the blank-page exercise, M1's "Done when" list, then `v0.1.0` and a GitHub Release (PLAN.md › Finishing a milestone).
+- **Proposed decisions:** before "API and UI", confirm two: Gradio (mounted inside FastAPI), and "Read the topic first". Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study".
 
 ## Concepts done
 - **"A rough first version in one file"** (2026-10-05): `scratch/first_loop.py`, never committed. The user wrote `main()`; Claude wrote the two inline Groq calls.
@@ -39,6 +39,17 @@ The handoff between sessions: where the last session stopped, what's next, rebui
   - **The user's first routing function called the nodes** instead of returning their names. The fix: a routing function only names the next node, and LangGraph runs it. The second review caught a leftover plain edge next to a conditional one; LangGraph would follow both.
   - **Found by testing:** a routing function returning a name that isn't a node doesn't raise. LangGraph logs "wrote to unknown channel … ignoring it" and the turn ends silently. `tests/test_build.py` checks every returned name is a node.
   - **Real runs:** "You choose" studied passage 2 (3 questions written, 1,461 tokens; the answer was graded correct). `--topic "pizza recipes"` took the "doesn't cover this" route. The skip route is covered by tests only: it needs the LLM to fail twice.
+- **"Pausing for your answer"** (PR #11, 2026-10-22):
+  - **The chain:** `scripts/study.py`'s `run_session()` makes a session id (also LangGraph's thread id) and starts the graph. It pauses in `ask_question` (`interrupt({"pause": "answer", "question": ...})`) and in a new `wait_for_next` node (`interrupt({"pause": "next"})`). At each pause `invoke()` returns the note in `result["__interrupt__"][0].value`; the loop reads the note's `"pause"` label, asks you (`read_answer()` or `read_next()`), and resumes with `graph.invoke(Command(resume=reply), config, context=...)` until no `"__interrupt__"` is left. `route_after_wait_for_next`: stop → `END`, otherwise → `pick_passage`.
+  - **Who wrote what:** the user wrote both pausing nodes, `route_after_wait_for_next`, the new edges and the checkpointer in `build_graph()`, and the resume loop. Claude wrote `make_checkpointer()`, the session id in `Context`, `passages_asked_in_session()`, `nothing_new`, `read_answer()`, `read_next()` and the tests. Throwaway `scratch/tiny_pause.py` showed the two calls, and the paused node running twice.
+  - **Decisions:**
+    - The second pause offers the same choice as the start (a topic, Enter for "You choose", `s` to stop). Claude first proposed switching to "You choose" after Next; the user proposed asking again, and asked Claude to compare honestly. Asking again alone left a hole, so it's combined with: for a typed topic, skip passages already asked this session. Typing a topic a third time when every close passage was asked prints "Nothing new on X this session".
+    - A topic the material doesn't cover no longer ends the session: `topic_not_covered` leads to the second pause.
+    - Each pause hands out a dict labelled with `"pause"`, so the caller knows what to ask for without knowing node names.
+    - The checkpointer's serializer is allowed to rebuild `Grade` and `GradedAnswer` (`SAVED_TYPES`), which removes LangGraph's "unregistered type" warning.
+  - **Found by testing:** LangGraph saves the state at a pause but not the context, so every call, a resume included, passes `context=` again.
+  - **Where the user got stuck:** what `interrupt()` returns on each of the two runs; why the note needs a label when LangGraph knows the paused node (LangGraph resumes the node; the caller decides what to ask the human); `result["__interrupt__"][0].value` layer by layer; reassigning `result` inside the `while` loop; and a tuple made by a misplaced `)` in the resume line.
+  - **The real run:** one session of 4 turns: "You choose" (passage 3), "classification" (passage 21), "classification" again (passage 20, a different one), "You choose" (passage 4), then `s`. All 4 attempts carry the session id.
 
 ## Rebuild results
 - **Concept "A rough first version in one file":** the rebuild of `main()` was never recorded.
@@ -48,7 +59,11 @@ The handoff between sessions: where the last session stopped, what's next, rebui
 - **The five test answers in `scripts/regrade.py`** and the verdict each should get were written by Claude. PLAN.md makes them the user's call, and the user hasn't reviewed them yet.
 - **Skipped passages can't be listed yet.** PLAN.md says they can be listed to see what went wrong with them; no command does that yet. A small listing fits the M3 grading report, or a check script.
 - **Every passage asked or skipped:** `next_new_passage()` raises `ValueError`, and `scripts/study.py` doesn't catch it, so the end of chapter 1 shows a traceback. Chapter 1 has 49 passages, so it's far off.
-- **For the M1 concept "Pausing for your answer":** restoring a saved `GradedAnswer` (and the `Grade` inside it) prints LangGraph's warning "Deserializing unregistered type … This will be blocked in a future version". The checkpointer's serializer needs these types allowed (`allowed_msgpack_modules`).
+- **For the M1 concept "API and UI":**
+  - Nodes print (`show`, `not_covered`, `skip_passage`), which only reaches a terminal. The page needs the grade, the passage and the messages as data, so they'll have to travel in the state or in what the pauses hand out.
+  - The in-memory checkpointer lives as long as the server process, and every request must send the session id. A server restart loses paused sessions until M6's SQLite checkpointer.
+  - Submit stays disabled while an answer is graded (PLAN.md › Same answer, same grade).
+- **A pasted question as an answer:** in the real session, one answer began with the question's own text and was graded incorrect. Nothing stops pasting; it's only worth noting if it happens by accident in the browser.
 - **"According to the passage" in questions:** about 4 in 10 questions mention the passage, which the learner never sees. Two prompt wordings, reasoning "medium" and gpt-oss-120b didn't fix it. Accepted as a known limit. Gemini Flash wasn't tried during grading; it needs a free Google AI Studio key and a change to the PLAN.md decision "LLM: Groq free tier". `scripts/check_questions.py --model …` compares models.
 - **The quote comes last in `Question`,** so it can't shape the question: the LLM has already written the question when it picks the quote. Moving `quote` first (as `Grade` does with its quotes) might cut questions the passage can't answer. Untested; `check_questions.py` can't measure it, because it only checks quotes.
 - **Quotes cut mid-sentence** can drop a "not" and still pass. The prompt asks for whole sentences, and 1 quote in 29 still started mid-sentence. If the check script shows more, code could require a quote to start at a sentence start.

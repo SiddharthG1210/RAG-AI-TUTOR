@@ -10,7 +10,7 @@ It reads the material, writes one question at a time from a single passage, and 
 - **RAG:** PyMuPDF extracts the PDF's text, which is cut into passages. The passages are embedded locally and searched with a vector store.
 - **Agentic loop:** LangGraph runs the study session and pauses while it waits for your answer. Plain code decides every step. The LLM only writes questions and grades answers.
 - **LLM:** Groq's free tier, through the `openai` SDK.
-- **Storage:** SQLite. **Web:** FastAPI.
+- **Storage:** SQLite. **Web:** a Gradio page, hosted in a FastAPI app.
 
 ## Run it locally
 You need Python 3.12 and [uv](https://docs.astral.sh/uv/).
@@ -20,9 +20,9 @@ uv sync                     # create .venv and install the exact versions in uv.
 uv run pytest               # run the tests
 copy .env.example .env      # then put your free Groq API key in .env
 uv run python scripts/ingest.py --chapter 1   # load chapter 1 of the PDF in data/
+uv run uvicorn tutor.api.main:create_app --factory   # study in the browser at http://127.0.0.1:8000
+uv run python scripts/study.py                # or study in the terminal
 ```
-
-More commands (starting the app) get added here as they're built.
 
 ## Study material
 The first material is [*Dive into Deep Learning*](https://d2l.ai) by Aston Zhang, Zachary C. Lipton, Mu Li and Alexander J. Smola, licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The book isn't included in this repo. Download [the PDF](https://d2l.ai/d2l-en.pdf) into `data/`.

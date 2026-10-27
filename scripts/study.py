@@ -11,7 +11,12 @@ each pause (``interrupt()``) and hands back what to show you; this script
 shows it, reads what you type, and resumes the graph with it:
 
     pause "answer": it prints the question and reads your answer
-    pause "next":   it reads the next topic, Enter for "You choose", or s to stop
+    pause "next":   it prints what the turn shows (the grade and the passage,
+                    or a message), then reads the next topic, Enter for
+                    "You choose", or s to stop
+
+The browser page (``src/tutor/api/``) is the other caller: it hands out and
+reads the same notes, one click at a time.
 
 One run is one study session, with its own id. Unlike the check scripts, it
 works on the real ``data/tutor.db``: the questions it writes, your attempts
@@ -72,6 +77,43 @@ def read_answer(question: str) -> str:
     return answer
 
 
+def print_shown(shown: dict) -> None:
+    """At pause 2, print what the turn shows: the grade and the passage, or a message.
+
+    ``shown`` is what the ``show`` or ``not_covered`` node packed (see their
+    docstrings in ``tutor/graph/nodes.py`` for its keys). The page shows the
+    same dict as boxes; this prints it as plain lines.
+
+    Args:
+        shown: ``note["shown"]``, from what the pause handed out.
+    """
+    print()
+    # "no_support" and "not_covered" carry a message instead of a grade.
+    if "message" in shown:
+        print(shown["message"])
+    if shown["kind"] == "graded":
+        print(
+            f"Verdict: {shown['verdict']}"
+            + ("  (reused: you gave this answer before)" if shown["reused"] else "")
+        )
+        # Each list prints only when it has something in it.
+        for label, key in (
+            ("Missing", "missing"),
+            ("Wrong", "wrong"),
+            ("Extras (no penalty)", "extras"),
+            ("Based on", "quotes"),
+        ):
+            if shown[key]:
+                print(f"{label}:")
+                for item in shown[key]:
+                    print(f"  - {item}")
+    # "not_covered" has no passage: nothing was found to show.
+    if "passage" in shown:
+        passage = shown["passage"]
+        print(f"\nThe passage: {passage['section']}, page {passage['pages']}\n")
+        print(passage["text"])
+
+
 def read_next() -> dict:
     """At pause 2, read the next topic, "You choose" (Enter), or stop (s).
 
@@ -111,6 +153,7 @@ def run_session(conn: sqlite3.Connection, topic: str | None) -> None:
         if note["pause"] == "answer":
             reply = read_answer(note["question"])
         else:
+            print_shown(note["shown"])
             reply = read_next()
         result = graph.invoke(Command(resume=reply), config, context=context)
 

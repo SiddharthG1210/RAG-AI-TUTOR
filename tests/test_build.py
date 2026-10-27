@@ -211,9 +211,7 @@ def test_the_first_pause_hands_out_the_question_and_waits() -> None:
     assert conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0] == 0
 
 
-def test_one_turn_then_stop(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_one_turn_then_stop(monkeypatch: pytest.MonkeyPatch) -> None:
     """You choose → questions written → pause for the answer → graded, shown → pause → stop."""
     conn = passages()
     passage_id = list_passages(conn)[0]["id"]
@@ -224,7 +222,12 @@ def test_one_turn_then_stop(
     final = run(conn, None, ["it is easier", STOP], notes)
 
     assert steps == [f"write {passage_id}", f"grade {passage_id}"]
-    assert notes == [{"pause": "answer", "question": "Why?"}, {"pause": "next"}]
+    assert notes[0] == {"pause": "answer", "question": "Why?"}
+    # The second pause hands out what show packed: the grade and the passage.
+    assert notes[1]["pause"] == "next"
+    assert notes[1]["shown"]["kind"] == "graded"
+    assert notes[1]["shown"]["verdict"] == "correct"
+    assert notes[1]["shown"]["passage"]["section"] == "1.3.1.2 Classification"
     assert final["answer"] == "it is easier"
     assert final["result"].grade.verdict == "correct"
     assert final["stop"] is True
@@ -232,7 +235,6 @@ def test_one_turn_then_stop(
     assert get_question(conn, final["question_id"])["used"] == 1
     # The attempt carries the session id.
     assert conn.execute("SELECT session_id FROM attempts").fetchone()[0] == SESSION
-    assert "Verdict: correct" in capsys.readouterr().out
 
 
 def test_next_starts_another_turn(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -249,22 +251,24 @@ def test_next_starts_another_turn(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_same_topic_again_moves_on_to_the_next_best_passage(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Typing a topic again in a session skips the passages already asked, then says so."""
     conn = passages(count=2)
     rows = list_passages(conn)
     first, second = (row["id"] for row in rows)
     steps: list[str] = []
+    notes: list[dict] = []
     fake_tools(monkeypatch, {}, steps)
     monkeypatch.setattr(nodes, "search", lambda _conn, _query: [(0.9, rows[0]), (0.8, rows[1])])
     again = {"stop": False, "topic": "classification"}
 
     # Turn 1: the best match. Turn 2: the next best. Turn 3: nothing new left.
-    run(conn, "classification", ["a", again, "b", again, STOP])
+    run(conn, "classification", ["a", again, "b", again, STOP], notes)
 
     assert steps == [f"write {first}", f"grade {first}", f"write {second}", f"grade {second}"]
-    assert "Nothing new on 'classification' this session" in capsys.readouterr().out
+    assert notes[-1]["shown"]["kind"] == "not_covered"
+    assert "Nothing new on 'classification' this session" in notes[-1]["shown"]["message"]
 
 
 def test_a_failed_write_is_tried_once_more(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -285,7 +289,7 @@ def test_a_failed_write_is_tried_once_more(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_two_failed_writes_skip_the_passage_and_pick_another(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Passage 1 fails twice: it's saved as skipped, and passage 2 is studied instead."""
     conn = passages(count=2)
@@ -305,11 +309,12 @@ def test_two_failed_writes_skip_the_passage_and_pick_another(
     # pick_passage started the count again for passage 2.
     assert final["write_tries"] == 1
     assert conn.execute("SELECT passage_id FROM skipped_passages").fetchone()[0] == first
-    assert f"Skipping passage {first}" in capsys.readouterr().out
+    # Logged on the console, not shown on the page.
+    assert f"Skipping passage {first}" in caplog.text
 
 
 def test_a_topic_the_material_doesnt_cover_asks_for_another(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Nothing close: the message is shown, nothing is written or asked, and the session goes on."""
     conn = passages()
@@ -321,6 +326,14 @@ def test_a_topic_the_material_doesnt_cover_asks_for_another(
     final = run(conn, "pizza recipes", [STOP], notes)
 
     assert steps == []
-    assert notes == [{"pause": "next"}]  # straight to "what next?", not the end
+    # Straight to "what next?", not the end, handing out the message to show.
+    assert notes == [
+        {
+            "pause": "next",
+            "shown": {
+                "kind": "not_covered",
+                "message": "The material doesn't cover this: 'pizza recipes'.",
+            },
+        }
+    ]
     assert final["passage_id"] is None
-    assert "The material doesn't cover this: 'pizza recipes'." in capsys.readouterr().out
