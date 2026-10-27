@@ -22,7 +22,13 @@ from tutor import questions
 from tutor.db import connect, list_passages, list_questions, save_chapter
 from tutor.ingest.pdf import Paragraph, Topic
 from tutor.llm import Prompt
-from tutor.questions import Question, QuestionSet, write_questions
+from tutor.questions import (
+    Question,
+    QuestionSet,
+    cut_source_phrase,
+    mentions_the_source,
+    write_questions,
+)
 
 # The real passage 2 of 1.3.1.2 Classification.
 PASSAGE_TEXT = (
@@ -173,6 +179,84 @@ def test_a_refill_lists_the_earlier_questions(
         "- Why use probabilities?\n"
         "- What is hard to optimize?"
     )
+
+
+# pytest.mark.parametrize runs the test once per (before, after) pair, and
+# reports each pair as its own test. Most pairs are real questions the LLM
+# wrote for chapter 1.
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        # At the start, with a comma after it: the next word gets its capital.
+        (
+            "According to the passage, what distinguishes binary classification from "
+            "other types of classification?",
+            "What distinguishes binary classification from other types of classification?",
+        ),
+        # At the end, with a comma before it.
+        (
+            "Why do classification problems need different tools from regression, "
+            "according to the passage?",
+            "Why do classification problems need different tools from regression?",
+        ),
+        (
+            "What is the primary output of a classifier, as described in the passage?",
+            "What is the primary output of a classifier?",
+        ),
+        (
+            "What are the typical steps involved in the training process described in the passage?",
+            "What are the typical steps involved in the training process?",
+        ),
+        # In the middle, between two commas.
+        ("What, according to this text, is a model?", "What is a model?"),
+        ("Which example in the passage shows overfitting?", "Which example shows overfitting?"),
+        # Built around the passage: nothing to cut, so mentions_the_source() drops it.
+        ("What does the passage say about labels?", "What does the passage say about labels?"),
+        # "from the text" can be the data the model learns from, so it stays.
+        ("What can a model learn from the text?", "What can a model learn from the text?"),
+        ("Why is a loss function needed?", "Why is a loss function needed?"),
+    ],
+)
+def test_cut_source_phrase(before: str, after: str) -> None:
+    """A phrase that only points at the passage is cut; anything else stays as it was."""
+    assert cut_source_phrase(before) == after
+
+
+@pytest.mark.parametrize(
+    ("question", "mentions"),
+    [
+        ("What does the passage say about labels?", True),
+        ("How does the author describe the wake-word problem?", True),
+        ("How do the authors describe the wake-word problem?", True),
+        ("What does this text claim about data?", True),
+        # "the" or "this" must come first, and whole words only.
+        ("What does a speech-to-text system output?", False),
+        ("Why does a wake word need context?", False),
+        ("Why is a loss function needed?", False),
+    ],
+)
+def test_mentions_the_source(question: str, mentions: bool) -> None:
+    """The passage, the text or the author counts; a topic with the same letters doesn't."""
+    assert mentions_the_source(question) is mentions
+
+
+def test_the_wording_check_cuts_or_drops_before_saving(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tacked-on "according to the passage" is cut; a question built around it is dropped.
+
+    All three quotes are real, so only the wording decides.
+    """
+    tacked_on = question("According to the passage, why use probabilities?", REAL.quote)
+    built_around = question("What does the passage say about optimizing?", ALSO_REAL.quote)
+    use(monkeypatch, QuestionSet(questions=[tacked_on, built_around, ALSO_REAL]))
+    passage = list_passages(conn)[0]
+
+    kept = write_questions(conn, passage)
+
+    assert [q.question for q in kept] == ["Why use probabilities?", "What is hard to optimize?"]
+    rows = list_questions(conn, passage["id"])
+    assert [r["text"] for r in rows] == ["Why use probabilities?", "What is hard to optimize?"]
 
 
 def test_when_no_quote_passes_nothing_is_saved(

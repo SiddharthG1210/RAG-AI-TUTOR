@@ -2,12 +2,12 @@
   "title": "Study Tutor Map",
   "name": "Study Tutor",
   "mark": "Map",
-  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 24 October 2026",
+  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 27 October 2026",
   "lede": "Every concept you’ll build, the file it lives in, and the tool that does the work, all linked. Pick anything to see what it touches.",
-  "footer": "Drawn from PLAN.md as of 24 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
+  "footer": "Drawn from PLAN.md as of 27 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
-  "start": "m1-9",
+  "start": "m2-1",
   "milestones": [
     {"n": 0, "short": "Setup", "title": "Setup", "ver": "", "items": [
       {"id": "m0-1", "name": "Tooling: uv, ruff and pytest", "who": null, "youLabel": "you did", "claudeLabel": "Claude did", "why": "One command builds the same environment on your laptop and on CI.", "you": "Ran `uv sync`, `uv run pytest` and the ruff checks.", "claude": "`pyproject.toml`, `.python-version` and the smoke test.", "files": ["pyproject", "uvlock", "pyver", "tests"], "tools": ["uv", "ruff", "pytest"]},
@@ -130,7 +130,7 @@
     {"id": "config", "name": "config.py", "f": "core", "ms": 1, "tools": ["pydantic"], "what": "Reads `.env` into typed settings."},
     {"id": "dbpy", "name": "db.py", "f": "core", "ms": 1, "tools": ["sqlite"], "what": "The SQLite tables, in plain SQL with no ORM. Gains a table or two each milestone."},
     {"id": "llm", "name": "llm.py", "f": "core", "ms": 1, "tools": ["openai", "groq", "pydantic"], "what": "The only door to the LLM: structured output, the token log, retries on 429. Tool calls arrive in M2."},
-    {"id": "questions", "name": "questions.py", "f": "core", "ms": 1, "tools": ["groq", "pydantic", "sqlite"], "what": "The `QuestionSet` schema and `write_questions()`: one passage in, up to 3 checked questions saved in its pool."},
+    {"id": "questions", "name": "questions.py", "f": "core", "ms": 1, "tools": ["groq", "pydantic", "sqlite"], "what": "The `QuestionSet` schema and `write_questions()`: one passage in, up to 3 checked questions saved in its pool. A phrase like “according to the passage” is cut, and a question that still mentions the passage is dropped."},
     {"id": "quotes", "name": "quotes.py", "f": "core", "ms": 1, "tools": [], "what": "The quote check: is the LLM’s quote really in the passage? An exact match of whole words after tidying both texts. Used by questions, grading and Ask the book."},
     {"id": "grading", "name": "grading.py", "f": "core", "ms": 1, "tools": ["groq", "sqlite"], "what": "Grades typed answers against the passage, and reuses the grade for a repeated answer."},
     {"id": "ask", "name": "ask.py", "f": "core", "ms": 2, "tools": ["groq", "pydantic"], "what": "The `search_book` tool, the `BookAnswer` schema and the citation checks."},
@@ -176,7 +176,7 @@
     "steps": [
       {"id": "f0", "step": "pre", "label": "Load a chapter", "ms": 1, "grows": [], "text": "Once per chapter, before any studying: read the PDF, keep only prose, group it into topics from the bookmarks, cut passages, save them and embed them. No LLM runs here, so it uses none of the free quota.", "tools": ["pymupdf", "sqlite", "bge"], "files": ["s-ingest", "pdf", "chunk", "embed", "store", "d-pdf", "d-db"]},
       {"id": "f1", "step": "1", "label": "Pick a passage", "ms": 1, "grows": [4, 5], "text": "A typed topic finds the closest passages by meaning, or says “the material doesn’t cover this”. “You choose” takes due reviews first (M4), then mix-up follow-ups and weak topics (M5), then the next new passage.", "tools": ["bge", "numpy", "sqlite", "fsrs"], "files": ["search", "scheduling", "patterns", "nodes"]},
-      {"id": "f2", "step": "2", "label": "Get a question", "ms": 1, "grows": [3], "text": "The next unused question from the passage’s pool of 3. An empty pool means one LLM call writes 3 more, and code checks that each quote is really in the passage. If none passes, they’re written once more; a second failure skips the passage for good and picks another.", "tools": ["sqlite", "groq", "openai", "pydantic"], "files": ["questions", "llm", "p-qw", "mc", "p-mc"]},
+      {"id": "f2", "step": "2", "label": "Get a question", "ms": 1, "grows": [3], "text": "The next unused question from the passage’s pool of 3. An empty pool means one LLM call writes 3 more. Code cuts “according to the passage”, drops a question that still mentions the passage, and checks that each quote is really in the passage. If none passes, they’re written once more; a second failure skips the passage for good and picks another.", "tools": ["sqlite", "groq", "openai", "pydantic"], "files": ["questions", "llm", "p-qw", "mc", "p-mc"]},
       {"id": "f3", "step": "3", "label": "Wait for your answer", "ms": 1, "grows": [6], "text": "The graph pauses with `interrupt()`, and its state is saved until your answer arrives in a new web request.", "tools": ["langgraph", "gradio", "fastapi"], "files": ["nodes", "build", "session", "ui", "main"]},
       {"id": "f4", "step": "4", "label": "Grade it", "ms": 1, "grows": [3, 5], "text": "An answer seen before reuses its grade. A typed answer is graded by the LLM against the passage; multiple choice is checked in code (M3). From M5 the mistake gets tagged.", "tools": ["sqlite", "groq", "pydantic"], "files": ["grading", "p-gr", "mc", "mistakes"]},
       {"id": "f5", "step": "5", "label": "Show grade and passage", "ms": 1, "grows": [], "text": "The grade, what’s missing or wrong, the quotes it rests on, and the passage it was based on, with its page and section number. The second pause hands them to the page, which shows one turn at a time.", "tools": ["gradio", "fastapi"], "files": ["nodes", "session", "ui", "main"]},

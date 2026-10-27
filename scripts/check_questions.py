@@ -18,9 +18,12 @@ when" (PLAN.md › Roadmap › M1):
   quote by adding a "not" after its first verb like "is" or "can", or, when it
   has none, by swapping its longest word.
 
-It also counts the questions that mention "the passage", "the text" or "the
-author". That isn't an M1 goal, but the learner never sees the passage, so
-such a question reads oddly in a review; the prompt asks the LLM not to.
+It also shows what the wording check did (PLAN.md › How the tutor behaves in
+specific cases › Questions never mention the passage): how many questions
+mentioned the passage, the text or the author as the LLM wrote them, how many
+had a phrase like "according to the passage" cut, and how many still mentioned
+it after the cut, and so were dropped. The wording isn't one of M1's "Done
+when" goals, so it doesn't change the exit code.
 
 The copy is deleted at the end, so the real ``data/tutor.db`` keeps its pools
 exactly as they were. Run it again after any change to the prompt, the schema,
@@ -32,7 +35,6 @@ editing ``.env``:
 
 import argparse
 import os
-import re
 import shutil
 import sqlite3
 import sys
@@ -48,7 +50,12 @@ from tutor import questions
 from tutor.config import get_settings
 from tutor.db import connect, list_passages
 from tutor.llm import complete_structured
-from tutor.questions import QuestionSet, write_questions
+from tutor.questions import (
+    QuestionSet,
+    cut_source_phrase,
+    mentions_the_source,
+    write_questions,
+)
 from tutor.quotes import quote_in_passage
 
 PASSAGES = 10
@@ -64,11 +71,6 @@ PAUSE_SECONDS = 20.0
 """The wait between calls. Groq's free tier allows gpt-oss-20b 8,000 tokens per
 minute, and one call uses about 1,700, so back-to-back calls hit the limit
 after four or five; one call every 20 seconds stays under it."""
-
-MENTIONS_SOURCE = re.compile(r"\b(the|this) (passage|text|author)\b", re.IGNORECASE)
-"""Wording that points at a passage the learner can't see. "the" or "this" is
-required so that topics like "speech-to-text" don't count. ``\\b`` is a word
-boundary, so "authors" or "context" don't match either."""
 
 AUXILIARIES = {"is", "are", "was", "were", "can", "could", "will", "would", "should", "does", "do"}
 """Verbs a "not" can follow, turning a sentence into its opposite."""
@@ -163,16 +165,19 @@ def main() -> None:
             picked = spread(list_passages(conn), PASSAGES)
             print(f"Model: {get_settings().question_model}\n")
             written = 0
-            mentions_source = 0
+            mentioned = 0  # questions that mentioned the passage as the LLM wrote them
+            cut_count = 0  # questions whose "according to the passage" was cut
+            still_mentioned = 0  # questions that still mentioned it after the cut: dropped
             failed_calls = 0
-            kept_quotes: list[tuple[str, str]] = []  # (quote, its passage's text)
+            # (quote, its passage's text) for every quote that passed the check
+            kept_quotes: list[tuple[str, str]] = []
 
             for i, passage in enumerate(picked):
                 if i > 0:
                     time.sleep(PAUSE_SECONDS)  # stay under the tokens-per-minute limit
                 print(f"## {passage['number']} {passage['title']}, passage {passage['position']}\n")
                 try:
-                    kept = write_questions(conn, passage)
+                    write_questions(conn, passage)
                 except (ValidationError, openai.BadRequestError) as error:
                     # The answer broke the schema: e.g. 1 question instead of
                     # exactly 3 (Pydantic), or Groq's json_validate_failed on
@@ -182,15 +187,28 @@ def main() -> None:
                     first_line = str(error).splitlines()[0]
                     print(f"  CALL FAILED: {type(error).__name__}: {first_line}\n")
                     continue
-                kept_quotes += [(q.quote, passage["text"]) for q in kept]
                 for q in answers[-1].questions:
                     written += 1
-                    mark = "kept   " if q in kept else "DROPPED"
-                    # re.search finds the wording anywhere in the question.
-                    if MENTIONS_SOURCE.search(q.question):
-                        mentions_source += 1
-                        mark += " (mentions the passage)"
+                    # The two checks write_questions() ran, repeated here one
+                    # at a time, so each count shows which check did what.
+                    # The quote check alone decides M1's pass rate.
+                    quote_ok = quote_in_passage(q.quote, passage["text"])
+                    if quote_ok:
+                        kept_quotes.append((q.quote, passage["text"]))
+                    cut = cut_source_phrase(q.question)
+                    notes = [] if quote_ok else ["quote not in the passage"]
+                    if mentions_the_source(q.question):
+                        mentioned += 1
+                    if cut != q.question:
+                        cut_count += 1
+                        notes.append(f"saved as: {cut}")
+                    if mentions_the_source(cut):
+                        still_mentioned += 1
+                        notes.append("still mentions the passage")
+                    mark = "kept   " if quote_ok and not mentions_the_source(cut) else "DROPPED"
                     print(f"  {mark} Q: {q.question}")
+                    for note in notes:
+                        print(f"            ({note})")
                     for point in q.key_points:
                         print(f"            - {point}")
                     print(f"            quote: {q.quote!r}\n")
@@ -202,8 +220,9 @@ def main() -> None:
             )
 
             print(
-                f"Questions that mention the passage, the text or the author: "
-                f"{mentions_source} of {written}."
+                f"Wording check: {mentioned} of {written} mentioned the passage, the text or "
+                f"the author; {cut_count} had the phrase cut, {still_mentioned} still mentioned "
+                f"it and were dropped."
             )
 
             made_up_rejected = not any(quote_in_passage(MADE_UP, p["text"]) for p in picked)

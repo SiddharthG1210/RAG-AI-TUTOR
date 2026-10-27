@@ -115,7 +115,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 24 October 2026 (after the web page was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 27 October 2026 (after the question-wording fix was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
     <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after the web page pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the question-wording pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -183,6 +183,8 @@ const CHAINS = [
       ["load_prompt", "the instructions file + its version"],
       ["list_questions", "earlier questions, so a refill doesn’t repeat them"],
       ["complete_structured", "one LLM call → a QuestionSet: 3 questions"],
+      ["cut_source_phrase", "each question → the same question without “according to the passage”"],
+      ["mentions_the_source", "still mentions the passage, the text or the author? → dropped"],
       ["quote_in_passage", "keeps only questions whose quote is really in the passage"],
       ["save_questions", "the kept ones (0 to 3) → the passage’s pool"]
     ]
@@ -284,7 +286,9 @@ const TREE = [
       { name: "questions.py", what: "Writes 3 checked questions for one passage.", items: [
         { kind: "shape", sig: "Question", say: "One question, the key points a good answer needs, and the quote it’s based on." },
         { kind: "shape", sig: "QuestionSet", say: "What one LLM call must return: exactly 3 Questions." },
-        { kind: "fn", sig: "write_questions(conn, passage)", say: "Builds the messages, makes one LLM call, keeps the questions whose quote checks out, and saves them." }
+        { kind: "fn", sig: "cut_source_phrase(question)", say: "Cuts a phrase that only points at the passage, like “according to the passage”, so the question reads as a teacher would ask it." },
+        { kind: "fn", sig: "mentions_the_source(question)", say: "Does a question still mention the passage, the text or the author?" },
+        { kind: "fn", sig: "write_questions(conn, passage)", say: "Builds the messages, makes one LLM call, cuts “according to the passage”, keeps the questions that don’t mention the passage and whose quote checks out, and saves them." }
       ]},
       { name: "grading.py", what: "Grades a typed answer against its question’s passage, and reuses the grade for a repeated answer.", items: [
         { kind: "shape", sig: "Grade", say: "What the grader LLM must return, in this order: quotes, missing, wrong, extras, and the verdict last." },
@@ -430,7 +434,7 @@ const TREE = [
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options." }
       ]},
       { name: "check_questions.py", what: "Tests the question writer on 10 real passages, on a copy of the database.", items: [
-        { kind: "fn", sig: "main()", say: "Writes questions for 10 passages and checks M1’s goals: 90% of quotes pass, fake and changed quotes fail." },
+        { kind: "fn", sig: "main()", say: "Writes questions for 10 passages and checks M1’s goals: 90% of quotes pass, fake and changed quotes fail. Also counts what the wording check cut or dropped." },
         { kind: "fn", sig: "spread(passages, count)", say: "Picks passages spread evenly across the chapter, the same ones every run." },
         { kind: "fn", sig: "change_one_word(quote)", say: "Makes a real quote say something else by changing one word." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --model." }
