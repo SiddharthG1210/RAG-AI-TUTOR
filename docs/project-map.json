@@ -2,9 +2,9 @@
   "title": "Study Tutor Map",
   "name": "Study Tutor",
   "mark": "Map",
-  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 27 October 2026",
+  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 29 October 2026",
   "lede": "Every concept you’ll build, the file it lives in, and the tool that does the work, all linked. Pick anything to see what it touches.",
-  "footer": "Drawn from PLAN.md as of 27 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
+  "footer": "Drawn from PLAN.md as of 29 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
   "start": "m2-1",
@@ -28,7 +28,7 @@
       {"id": "m1-9", "num": 9, "name": "API and UI", "who": "claude", "why": "Study in the browser instead of the terminal.", "you": "", "claude": "The Gradio page, one turn at a time, and the FastAPI app that hosts it. `start_session()` and `resume_session()`: a session started and resumed one click at a time. The pauses hand out what to show, so no step prints. Submit is disabled while an answer is being graded. Tests.", "files": ["main", "session", "ui", "nodes", "state", "s-study", "tests"], "tools": ["fastapi", "gradio", "uvicorn", "langgraph"]}
     ]},
     {"n": 2, "short": "Ask the book", "title": "Ask the book, your first agent", "ver": "v0.2.0", "items": [
-      {"id": "m2-1", "num": 1, "name": "Tool calling", "who": "you", "why": "Lets the LLM ask your code to run something, here a search of the book.", "you": "The `search_book(query)` tool definition: the description and parameters the LLM reads.", "claude": "Tool calls in the LLM wrapper, running a requested search, tests with a fake LLM.", "files": ["llm", "ask", "search"], "tools": ["groq", "openai"]},
+      {"id": "m2-1", "num": 1, "name": "Tool calling", "who": "you", "why": "Lets the LLM ask your code to run something, here a search of the book.", "you": "The `search_book(query)` tool definition: the description and parameters the LLM reads.", "claude": "Tool calls in the LLM wrapper, running a requested search, tests with a fake LLM.", "files": ["llm", "ask", "search", "p-ask", "config", "env", "tests", "codetree"], "tools": ["groq", "openai", "pydantic"]},
       {"id": "m2-2", "num": 2, "name": "The agent loop as a graph", "who": "you", "why": "The one place where the LLM chooses the next step, with code capping it.", "you": "The routing function: search again, answer, or stop after 3 searches.", "claude": "The agent subgraph (an LLM node and a tool node) and its message history.", "files": ["agent"], "tools": ["langgraph", "groq"]},
       {"id": "m2-3", "num": 3, "name": "Answers grounded in several passages", "who": "you", "why": "Classic RAG: answer from several retrieved passages, with every citation checked.", "you": "The answer prompt and the `BookAnswer` schema.", "claude": "The quote check on every citation, the “no support found” path, the Ask the book box, the asks table.", "files": ["ask", "p-ask", "ui", "dbpy"], "tools": ["groq", "pydantic", "gradio", "sqlite"]},
       {"id": "m2-4", "num": 4, "name": "Hybrid search", "who": "you", "optional": true, "why": "Keyword search catches exact terms that meaning search can miss.", "you": "Reciprocal rank fusion: merging the keyword ranking with the embedding ranking.", "claude": "Keyword search with SQLite FTS5, the hybrid `search_book`, a comparison on the retrieval check.", "files": ["keyword", "search", "s-check"], "tools": ["fts5", "numpy", "bge"]}
@@ -76,7 +76,7 @@
     {"id": "numpy", "name": "NumPy", "group": "find", "ms": 1, "status": "decided", "what": "Compares the query’s vector with every passage’s vector (cosine) and picks the closest: the whole vector search, in a few lines.", "note": "About a millisecond even for the whole book, so no vector database is needed."},
     {"id": "chroma", "name": "Chroma", "group": "find", "ms": 7, "status": "optional", "what": "Optional, after v1.0.0: a vector database, to learn its API. Search works without it.", "note": "A derived index, rebuilt from the embeddings in SQLite. Set to cosine distance; its default is L2."},
     {"id": "fts5", "name": "SQLite FTS5", "group": "find", "ms": 2, "status": "optional", "what": "Keyword search (BM25 ranking) built into SQLite, for hybrid search in Ask the book."},
-    {"id": "groq", "name": "Groq", "sub": "gpt-oss-20b · gpt-oss-120b", "group": "think", "ms": 1, "status": "decided", "what": "The LLM. gpt-oss-20b writes questions, gpt-oss-120b grades typed answers, and from M2 an agent answers Ask the book.", "note": "Free tier, per model: 30 requests/min, 1K requests/day, 8K tokens/min, 200K tokens/day."},
+    {"id": "groq", "name": "Groq", "sub": "gpt-oss-20b · gpt-oss-120b", "group": "think", "ms": 1, "status": "decided", "what": "The LLM. gpt-oss-20b writes questions and, from M2, answers Ask the book as an agent; gpt-oss-120b grades typed answers, so Ask the book never spends the grader’s daily tokens.", "note": "Free tier, per model: 30 requests/min, 1K requests/day, 8K tokens/min, 200K tokens/day."},
     {"id": "openai", "name": "openai SDK", "group": "think", "ms": 1, "status": "decided", "what": "The Python library that sends every LLM call. Groq speaks the same API, so switching provider only means editing `.env`.", "note": "Every call goes through `llm.py`; no LangChain chat models."},
     {"id": "pydantic", "name": "Pydantic", "sub": "with pydantic-settings", "group": "think", "ms": 1, "status": "decided", "what": "Defines the exact shape of every LLM answer (`QuestionSet`, `Grade`, `BookAnswer`) and reads your settings from `.env`."},
     {"id": "langgraph", "name": "LangGraph", "group": "loop", "ms": 1, "status": "decided", "what": "Runs the study loop as a graph of steps and pauses it while it waits for you (`interrupt` plus a checkpointer). From M2 it also runs the agent loop."},
@@ -129,7 +129,7 @@
     {"id": "p-mc", "name": "mc_writer.md", "f": "prompts", "ms": 3, "tools": ["groq"], "what": "Writes multiple-choice questions with 4 options and a quote."},
     {"id": "config", "name": "config.py", "f": "core", "ms": 1, "tools": ["pydantic"], "what": "Reads `.env` into typed settings."},
     {"id": "dbpy", "name": "db.py", "f": "core", "ms": 1, "tools": ["sqlite"], "what": "The SQLite tables, in plain SQL with no ORM. Gains a table or two each milestone."},
-    {"id": "llm", "name": "llm.py", "f": "core", "ms": 1, "tools": ["openai", "groq", "pydantic"], "what": "The only door to the LLM: structured output, the token log, retries on 429. Tool calls arrive in M2."},
+    {"id": "llm", "name": "llm.py", "f": "core", "ms": 1, "tools": ["openai", "groq", "pydantic"], "what": "The only door to the LLM: structured output, tool calls (from M2), the token log, retries on 429."},
     {"id": "questions", "name": "questions.py", "f": "core", "ms": 1, "tools": ["groq", "pydantic", "sqlite"], "what": "The `QuestionSet` schema and `write_questions()`: one passage in, up to 3 checked questions saved in its pool. A phrase like “according to the passage” is cut, and a question that still mentions the passage is dropped."},
     {"id": "quotes", "name": "quotes.py", "f": "core", "ms": 1, "tools": [], "what": "The quote check: is the LLM’s quote really in the passage? An exact match of whole words after tidying both texts. Used by questions, grading and Ask the book."},
     {"id": "grading", "name": "grading.py", "f": "core", "ms": 1, "tools": ["groq", "sqlite"], "what": "Grades typed answers against the passage, and reuses the grade for a repeated answer."},

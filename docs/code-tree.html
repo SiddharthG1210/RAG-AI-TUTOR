@@ -115,7 +115,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 27 October 2026 (after the question-wording fix was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 29 October 2026 (after the tool-calling pull request was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
     <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after the question-wording pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the tool-calling pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -204,6 +204,21 @@ const CHAINS = [
     ]
   },
   {
+    title: "Ask the book: one search",
+    when: "When the LLM asks to search the book (M2; for now run by scratch/try_search_tool.py, until the agent loop)",
+    steps: [
+      ["start_messages", "starts here with your question, e.g. “How is tagging different from classification?”"],
+      ["load_prompt", "ask_book.md + its version → the system message"],
+      ["complete_with_tools", "one LLM call with the search_book tool → its request: search_book {\"query\": \"tagging\"}"],
+      ["run_search_request", "starts with that one request and the ids already shown; does the five steps below"],
+      ["read_search_request", "the name checked, the JSON arguments → a SearchBook"],
+      ["search", "the query → the closest passages above the cut-off, with room for repeats"],
+      ["new_passages", "drops the passages already shown in this chat; keeps the 2 closest new ones"],
+      ["format_passages", "the passages → text with each one’s id, section and pages (found only repeats → “nothing new” instead)"],
+      ["tool_result", "that text → the message answering the request by its id, plus the ids handed out"]
+    ]
+  },
+  {
     title: "A study session",
     when: "uv run python scripts/study.py, or with --topic “gradient descent”",
     steps: [
@@ -244,7 +259,7 @@ const TREE = [
     folder: "src/tutor/", note: "the tutor itself",
     files: [
       { name: "config.py", what: "Reads your settings from the .env file.", items: [
-        { kind: "shape", sig: "Settings", say: "The list of settings: Groq’s web address, your key, which model writes questions and which one grades." },
+        { kind: "shape", sig: "Settings", say: "The list of settings: Groq’s web address, your key, which model writes questions, which one grades and which one answers Ask the book." },
         { kind: "fn", sig: "get_settings()", say: "Reads the settings once and hands back that same copy every time after." }
       ]},
       { name: "db.py", what: "The database: makes the tables, and saves and reads rows with plain SQL.", items: [
@@ -266,18 +281,20 @@ const TREE = [
         { kind: "fn", sig: "save_attempt(conn, question_id, session_id, answer, …)", say: "Saves one graded answer: the answer, its grade, whether its quotes checked out, and the prompt version, model and settings." },
         { kind: "fn", sig: "find_attempt(conn, question_id, tidied_answer, …)", say: "The same-answer check: finds an earlier supported attempt with exactly this answer, prompt version, model and settings." }
       ]},
-      { name: "llm.py", what: "The only door to the LLM: loads prompts, makes the call, copes with limits, logs tokens.", items: [
+      { name: "llm.py", what: "The only door to the LLM: loads prompts, makes the call (with a fixed shape, or with tools), copes with limits, logs tokens.", items: [
         { kind: "shape", sig: "FreeLimitReached", say: "The error raised when Groq’s free limit is used up and waiting didn’t help." },
-        { kind: "shape", sig: "UnusableAnswer", say: "The error raised when the LLM’s answer can’t be used: it broke the shape twice, came back empty, or broke a rule like “exactly 3”." },
+        { kind: "shape", sig: "UnusableAnswer", say: "The error raised when the LLM’s answer can’t be used: it broke the shape or the tool request twice, came back empty, broke a rule like “exactly 3”, or asked for a tool that doesn’t exist." },
         { kind: "shape", sig: "Prompt", say: "A prompt file’s text, plus its version: a short fingerprint that changes whenever the text does." },
         { kind: "fn", sig: "load_prompt(name)", say: "Reads a prompt file from prompts/ and fingerprints it." },
         { kind: "fn", sig: "strict_schema(model)", say: "Turns a Pydantic class into the JSON shape Groq’s strict mode accepts." },
+        { kind: "fn", sig: "function_tool(model, name)", say: "Turns a Pydantic class into a tool the LLM can ask for: its docstring becomes the description, its fields the arguments." },
         { kind: "fn", sig: "complete_structured(conn, messages, schema, …)", say: "The call everything uses: send the messages and the shape, log the tokens, and hand the answer back as a Python object." },
+        { kind: "fn", sig: "complete_with_tools(conn, messages, tools, …)", say: "A call with tools: send the messages and the tools, log the tokens, and hand back the reply as a plain dict, either text or a request to run a tool." },
         { kind: "helper", sig: "_client()", say: "Makes the connection to Groq once and reuses it." },
         { kind: "helper", sig: "_make_strict(schema)", say: "Fixes up the shape: every field required, no extra fields, drops rules Groq can’t take (like “exactly 3”)." },
         { kind: "helper", sig: "_retry_after(error)", say: "Reads how long Groq says to wait after a “too many requests” error." },
         { kind: "helper", sig: "_create(…)", say: "Sends the request. After “too many requests”, waits as told and tries once more." },
-        { kind: "helper", sig: "_create_valid(…)", say: "Sends the request. If the answer broke the shape, asks once more." }
+        { kind: "helper", sig: "_create_valid(…)", say: "Sends the request. If the answer came out malformed (a broken shape, or a tool request Groq couldn’t read), asks once more." }
       ]},
       { name: "quotes.py", what: "The quote check: is the LLM’s quote really in the passage?", items: [
         { kind: "fn", sig: "normalize(text)", say: "Tidies a text so harmless differences don’t count: lowercase, no quote marks, dashes evened out, spaces tidied." },
@@ -295,6 +312,15 @@ const TREE = [
         { kind: "shape", sig: "GradedAnswer", say: "What grading hands back: the grade, whether its quotes checked out, and whether it was reused." },
         { kind: "fn", sig: "tidy_answer(answer)", say: "Lowercases an answer and tidies its spaces, for the same-answer check." },
         { kind: "fn", sig: "grade_answer(conn, question, answer, session_id)", say: "Reuses the grade of a repeated answer, or makes one LLM call, checks the grade’s quotes, and saves the attempt." }
+      ]},
+      { name: "ask.py", what: "Ask the book: the search_book tool, and running a search the LLM asked for.", items: [
+        { kind: "shape", sig: "SearchBook", say: "The search_book tool’s one argument, query. Its docstring is the tool’s description: the LLM reads it to decide when to search." },
+        { kind: "fn", sig: "start_messages(question)", say: "The first two messages of an Ask the book chat: the instructions from ask_book.md, then your question." },
+        { kind: "fn", sig: "read_search_request(tool_call)", say: "Checks a tool request asks for search_book and turns its JSON arguments into a SearchBook; anything else is an unusable answer." },
+        { kind: "fn", sig: "new_passages(results, shown_ids)", say: "Leaves out the passages the LLM has already been shown in this chat, and keeps the closest few." },
+        { kind: "fn", sig: "format_passages(results)", say: "Turns a search’s passages into the text the LLM reads: each one’s id, section and pages, then its text; or “nothing close enough”." },
+        { kind: "fn", sig: "tool_result(tool_call, content)", say: "The message that answers one tool request, tied to it by the request’s id." },
+        { kind: "fn", sig: "run_search_request(conn, tool_call, shown_ids)", say: "One tool request start to finish: read it, search, drop repeats, format, answer. Hands back the tool message and the ids of the passages newly shown." }
       ]}
     ]
   },
@@ -412,7 +438,8 @@ const TREE = [
     folder: "prompts/", note: "instructions for the LLM, kept out of the code",
     files: [
       { name: "question_writer.md", what: "What the question-writing LLM is told on every call: 3 questions, only from the passage, key points from the passage, quotes copied as whole sentences.", items: [] },
-      { name: "grader.md", what: "What the grading LLM is told on every call: judge only from the passage, fill in quotes, missing, wrong and extras first, then decide the verdict.", items: [] }
+      { name: "grader.md", what: "What the grading LLM is told on every call: judge only from the passage, fill in quotes, missing, wrong and extras first, then decide the verdict.", items: [] },
+      { name: "ask_book.md", what: "What the Ask the book LLM is told: answer only from the book, search before answering, one idea per search, and use only what the searches return.", items: [] }
     ]
   },
   {
