@@ -18,6 +18,7 @@ def test_settings_are_read_from_the_environment(monkeypatch: pytest.MonkeyPatch)
     assert settings.llm_api_key == "test-key"
     assert settings.question_model == "some/model"
     assert settings.grader_model == "openai/gpt-oss-120b"  # the default
+    assert settings.ask_model == "openai/gpt-oss-20b"  # the default
 
 
 def test_an_empty_key_fails_at_once(monkeypatch: pytest.MonkeyPatch) -> None:

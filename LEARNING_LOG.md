@@ -3,10 +3,10 @@
 The handoff between sessions: where the last session stopped, what's next, rebuild results and open questions. Read it at the start of every session. Claude updates it when the user asks (see CLAUDE.md › Workflow). What the user has learned, and through what, is in `PROGRESS.md`.
 
 ## Where we are
-- **Milestone:** M1 (v0.1.0), "one question, graded, with the passage shown", in progress.
-- **Done in M1:** concepts 0 to 8 (see Concepts done). Each one's pull request is merged and ticked on the Study Tutor Map.
-- **Next:** the M1 concept "API and UI", on branch `feat/web-ui`, the last concept of M1. PLAN.md: Claude writes it all, the user explains it back. The branch's first commit is this log and progress update, plus the map's `start` moved to that concept in `docs/project-map.json`. After it: the blank-page exercise, M1's "Done when" list, then `v0.1.0` and a GitHub Release (PLAN.md › Finishing a milestone).
-- **Proposed decisions:** before "API and UI", confirm two: Gradio (mounted inside FastAPI), and "Read the topic first". Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study".
+- **Milestone:** M1 (v0.1.0), "one question, graded, with the passage shown", is done. `v0.1.0` was tagged and released on 2026-10-27: the annotated tag sits on the merge commit of PR #14, and the GitHub Release is "v0.1.0: one question, graded, with the passage shown". Next is M2 (v0.2.0), "Ask the book, your first agent".
+- **Done in M1:** concepts 0 to 9 (see Concepts done), plus the question-wording fix (see Finishing M1). Each concept's pull request is merged and ticked on the Study Tutor Map.
+- **Next:** the M2 concept "Tool calling", on branch `feat/tool-calling`. The branch's first commit is this log and progress update. The map's `start` already points at it (moved in the question-wording fix). PLAN.md: the user writes the `search_book(query)` tool definition; Claude writes tool calls in the LLM wrapper, running a requested search, and tests with a fake LLM.
+- **Proposed decisions:** before M2, confirm one: `openai/gpt-oss-20b` also answers Ask the book, so it doesn't spend the grader's daily tokens (PLAN.md › Decisions › LLM). Before M4: the FSRS ratings, the daily review cap, and "Questions on a passage's first study". Before M5: mix-up follow-ups. Before M7: sharing.
 
 ## Concepts done
 - **"A rough first version in one file"** (2026-10-05): `scratch/first_loop.py`, never committed. The user wrote `main()`; Claude wrote the two inline Groq calls.
@@ -50,21 +50,39 @@ The handoff between sessions: where the last session stopped, what's next, rebui
   - **Found by testing:** LangGraph saves the state at a pause but not the context, so every call, a resume included, passes `context=` again.
   - **Where the user got stuck:** what `interrupt()` returns on each of the two runs; why the note needs a label when LangGraph knows the paused node (LangGraph resumes the node; the caller decides what to ask the human); `result["__interrupt__"][0].value` layer by layer; reassigning `result` inside the `while` loop; and a tuple made by a misplaced `)` in the resume line.
   - **The real run:** one session of 4 turns: "You choose" (passage 3), "classification" (passage 21), "classification" again (passage 20, a different one), "You choose" (passage 4), then `s`. All 4 attempts carry the session id.
+- **"API and UI"** (PR #12, 2026-10-27):
+  - **The chain:** a click calls one of `ui.py`'s handlers (`on_study`, `on_submit`, `on_stop`) → `session.py`: `start_session()` (a new session id, and the graph run to its first pause) or `resume_session()` (`Command(resume=reply)`, raising `SessionLost` for an id the checkpointer doesn't have) → `_run()` opens a connection, runs `graph.invoke()` once and closes it → the pause note → `screen_after()` turns it into a `Screen` → `render()` turns that into a `gr.update(...)` per box → the page. `main.py`'s `create_app()` builds the graph once (one shared checkpointer) and mounts the Gradio page at `/` in a FastAPI app, which uvicorn runs with `--factory`.
+  - **What the pauses hand out:** no node prints any more. `show` and `not_covered` return a `shown` dict: the verdict, missing, wrong, extras and quotes, plus the passage's section, pages and text; or a message instead. `wait_for_next` hands it out as `interrupt({"pause": "next", "shown": ...})`, and `skip_passage` logs. `scripts/study.py` prints the note with `print_shown()`, so the terminal and the page show the same thing.
+  - **Who wrote what:** Claude wrote it all, as PLAN.md says, then walked the user through it one piece at a time, each piece starting from why it's needed. The user understood `shown`, the two pauses and `session.py` completely. Partway into `ui.py` they asked whether the page's internals (`Screen`, `render()`, `gr.update`) matter for an AI/ML engineer, and agreed to skip the rest as web plumbing.
+  - **Decisions:** Gradio mounted in FastAPI, with no JSON routes: FastAPI only hosts the page. One turn at a time on the page. The grade reaches the page through the second pause's note, never by reading the state. "Read the topic first" was dropped from PLAN.md. Each click opens and closes its own database connection, because Gradio runs each click in a worker thread and a `sqlite3` connection refuses other threads; that works because the state holds ids.
+  - **Found by testing:** Gradio refuses an empty `{}` from a click handler ("didn't return enough output values"), so "no change" is written `{topic_box: gr.update()}`.
+  - **Where the user got stuck:** how anything reaches a browser at all (the browser and the server exchange messages, and only return values travel; `scratch/tiny_page.py` showed prints staying in the server's console); why `reply = interrupt(...)` has no value on the first run (the node stops before the `=`); and why the working state is gone between clicks unless the checkpointer keeps it.
+  - **The real runs:** Claude drove the page over HTTP on a copy of the database: the topic "classification" → a question from the pool → a real grade → passage 1.3.1.2 on page 10 → stop, plus an empty topic and an empty answer. The user then studied in the browser on the real database, and a question there ("What does the passage say about how a machine learning system learns…") started the wording fix below.
+
+## Finishing M1 (2026-10-27)
+- **The question-wording fix** (PR #13):
+  - `write_questions()` now cuts a phrase that only points at the passage (`cut_source_phrase()`) and drops a question that still mentions the passage, the text or the author (`mentions_the_source()`), before the quote check. Claude wrote it all at the user's request.
+  - On the 27 saved questions, 10 mentioned the passage: 7 could be cut and 3 couldn't. Dropping alone was ruled out, because bad questions cluster by passage (2 of 9 pools had all 3 bad) and two failed writes skip a passage for good. The user's idea, a second LLM call that rewrites such questions, would work, but it costs a call and a change in meaning can't be checked.
+  - `scratch/clean_question_wording.py` cleaned the saved unused questions (6 cut, 2 deleted), after a backup at `data/tutor.backup-2026-10-27.db`.
+  - `scripts/check_questions.py` now reports what the wording check cut or dropped. It hasn't been run on fresh questions yet.
+- **The release** (PR #14): `version` set to 0.1.0 in `pyproject.toml` and `uv.lock`, the README's status line and its line on search corrected, then the annotated tag `v0.1.0` and the GitHub Release.
+- **Skipped:** the blank-page exercise, at the user's request. M1's "Done when" list wasn't run again: each item was checked in its own concept, and the browser session in "API and UI".
 
 ## Rebuild results
 - **Concept "A rough first version in one file":** the rebuild of `main()` was never recorded.
 - **Rebuilds stopped** at the start of grading (2026-10-13): the user asked to skip rewriting last session's code and go straight to the new concept.
+- **Blank-page exercise for M1:** skipped at the user's request (2026-10-27).
 
 ## Open questions
 - **The five test answers in `scripts/regrade.py`** and the verdict each should get were written by Claude. PLAN.md makes them the user's call, and the user hasn't reviewed them yet.
 - **Skipped passages can't be listed yet.** PLAN.md says they can be listed to see what went wrong with them; no command does that yet. A small listing fits the M3 grading report, or a check script.
 - **Every passage asked or skipped:** `next_new_passage()` raises `ValueError`, and `scripts/study.py` doesn't catch it, so the end of chapter 1 shows a traceback. Chapter 1 has 49 passages, so it's far off.
-- **For the M1 concept "API and UI":**
-  - Nodes print (`show`, `not_covered`, `skip_passage`), which only reaches a terminal. The page needs the grade, the passage and the messages as data, so they'll have to travel in the state or in what the pauses hand out.
-  - The in-memory checkpointer lives as long as the server process, and every request must send the session id. A server restart loses paused sessions until M6's SQLite checkpointer.
-  - Submit stays disabled while an answer is graded (PLAN.md › Same answer, same grade).
+- **A reused grade doesn't count as asked this session.** A repeated answer reuses its grade and saves no new attempt, so `passages_asked_in_session()` misses it, and typing the same topic again can bring back the same passage.
+- **Stop during the answer pause:** the page hides Stop then, but calling the stop handler directly (Gradio exposes each handler as an API) would resume `ask` with a dict as the answer.
 - **A pasted question as an answer:** in the real session, one answer began with the question's own text and was graded incorrect. Nothing stops pasting; it's only worth noting if it happens by accident in the browser.
-- **"According to the passage" in questions:** about 4 in 10 questions mention the passage, which the learner never sees. Two prompt wordings, reasoning "medium" and gpt-oss-120b didn't fix it. Accepted as a known limit. Gemini Flash wasn't tried during grading; it needs a free Google AI Studio key and a change to the PLAN.md decision "LLM: Groq free tier". `scripts/check_questions.py --model …` compares models.
+- **Questions that mention the passage, after the wording fix:**
+  - The fix was measured only on the 27 saved questions. `scripts/check_questions.py` (10 real LLM calls) would show the rate on fresh ones.
+  - Two answered questions still mention the passage (ids 13 and 25). They're never asked again, but a refill lists every earlier question in the prompt, so the LLM sees them. Cut or delete them if refills start copying the phrase.
 - **The quote comes last in `Question`,** so it can't shape the question: the LLM has already written the question when it picks the quote. Moving `quote` first (as `Grade` does with its quotes) might cut questions the passage can't answer. Untested; `check_questions.py` can't measure it, because it only checks quotes.
 - **Quotes cut mid-sentence** can drop a "not" and still pass. The prompt asks for whole sentences, and 1 quote in 29 still started mid-sentence. If the check script shows more, code could require a quote to start at a sentence start.
 - **Not answerable from the passage:** a question can have a real quote and still ask something the passage doesn't explain. That's a case for the M3 flag.

@@ -1,4 +1,4 @@
-"""Tests for ``tutor.llm``: prompts, the strict schema, the structured call, 429s and the token log.
+"""Tests for ``tutor.llm``: prompts, schemas, the structured call, tool calls, 429s, the token log.
 
 No request ever reaches Groq: ``monkeypatch`` swaps the SDK client for a fake
 whose ``chat.completions.create`` returns made-up responses or raises a
@@ -21,6 +21,8 @@ from tutor.llm import (
     FreeLimitReached,
     UnusableAnswer,
     complete_structured,
+    complete_with_tools,
+    function_tool,
     load_prompt,
     strict_schema,
 )
@@ -49,6 +51,26 @@ def response(content: str) -> SimpleNamespace:
     """
     usage = SimpleNamespace(prompt_tokens=100, completion_tokens=50, total_tokens=150)
     message = SimpleNamespace(content=content)
+    return SimpleNamespace(usage=usage, choices=[SimpleNamespace(message=message)])
+
+
+def tool_response(content: str | None, calls: list[tuple[str, str, str]]) -> SimpleNamespace:
+    """Build a fake SDK response to a call with tools.
+
+    Args:
+        content: The reply's text, or None (as in a reply that only asks for a tool).
+        calls: (id, name, arguments) for each tool request; empty for none.
+
+    Returns:
+        An object shaped like the SDK's response. Like the SDK, it gives
+        ``tool_calls=None``, not an empty list, when there's no request.
+    """
+    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+    tool_calls = [
+        SimpleNamespace(id=call_id, function=SimpleNamespace(name=name, arguments=arguments))
+        for call_id, name, arguments in calls
+    ]
+    message = SimpleNamespace(content=content, tool_calls=tool_calls or None)
     return SimpleNamespace(usage=usage, choices=[SimpleNamespace(message=message)])
 
 
@@ -270,3 +292,109 @@ def test_a_prompts_version_changes_when_its_text_does(
     assert load_prompt("p").version == first.version
     (tmp_path / "p.md").write_text("Write 3 questions!", encoding="utf-8")
     assert load_prompt("p").version != first.version
+
+
+TOOLS = [function_tool(Item, "find_item")]
+"""One tool built from the small test model, for the calls with tools."""
+
+
+def call_with_tools(conn: Any) -> dict[str, Any]:
+    """Run complete_with_tools with the test tool.
+
+    Args:
+        conn: An open connection.
+
+    Returns:
+        The reply, as a plain dict.
+    """
+    messages = [{"role": "user", "content": "hi"}]
+    return complete_with_tools(
+        conn, messages, TOOLS, model="m", reasoning_effort="low", purpose="ask"
+    )
+
+
+def test_a_tool_is_built_from_a_model() -> None:
+    """The docstring becomes the tool's description; the fields become strict parameters."""
+    tool = function_tool(Item, "find_item")
+    assert tool["type"] == "function"
+    function = tool["function"]
+    assert function["name"] == "find_item"
+    assert function["description"] == "A small nested model, standing in for Question."
+    assert "description" not in function["parameters"]
+    assert function["parameters"]["required"] == ["name"]
+    assert function["parameters"]["additionalProperties"] is False
+    # The field's description stays: the LLM reads it to fill the argument.
+    assert function["parameters"]["properties"]["name"]["description"] == "a name"
+
+
+def test_a_tool_needs_a_docstring() -> None:
+    """A model with no docstring would give the LLM no description, so it fails loudly."""
+
+    class Bare(BaseModel):
+        x: int
+
+    with pytest.raises(ValueError, match="docstring"):
+        function_tool(Bare, "bare")
+
+
+def test_a_tool_request_comes_back_as_a_plain_dict(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tools go out with no response_format; the request comes back as a dict; tokens are logged."""
+    client = FakeClient([tool_response(None, [("call_1", "find_item", '{"name": "a"}')])])
+    use(monkeypatch, client)
+    conn = connect(":memory:")
+
+    reply = call_with_tools(conn)
+
+    assert reply == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "find_item", "arguments": '{"name": "a"}'},
+            }
+        ],
+    }
+    assert client.requests[0]["tools"] == TOOLS
+    assert "response_format" not in client.requests[0]
+    row = conn.execute("SELECT model, purpose, total_tokens FROM llm_calls").fetchone()
+    assert tuple(row) == ("m", "ask", 150)
+
+
+def test_a_text_reply_has_no_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the LLM answers instead of asking for a tool, the dict has no tool_calls key."""
+    use(monkeypatch, FakeClient([tool_response("The book says so.", [])]))
+    reply = call_with_tools(connect(":memory:"))
+    assert reply == {"role": "assistant", "content": "The book says so."}
+
+
+def test_a_reply_with_neither_text_nor_request_is_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No text and no tool request: there's nothing to use, so UnusableAnswer is raised."""
+    use(monkeypatch, FakeClient([tool_response(None, [])]))
+    with pytest.raises(UnusableAnswer, match="came back empty"):
+        call_with_tools(connect(":memory:"))
+
+
+def test_a_malformed_tool_request_is_asked_for_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After Groq's tool_use_failed, the request is sent once more and its reply used."""
+    client = FakeClient(
+        [
+            bad_request("tool_use_failed"),
+            tool_response(None, [("call_1", "find_item", '{"name": "a"}')]),
+        ]
+    )
+    use(monkeypatch, client)
+    assert call_with_tools(connect(":memory:"))["tool_calls"][0]["id"] == "call_1"
+    assert len(client.requests) == 2
+
+
+def test_a_second_malformed_tool_request_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two tool_use_failed in a row: UnusableAnswer is raised, with no third try."""
+    client = FakeClient([bad_request("tool_use_failed"), bad_request("tool_use_failed")])
+    use(monkeypatch, client)
+    with pytest.raises(UnusableAnswer, match="tool_use_failed"):
+        call_with_tools(connect(":memory:"))
+    assert len(client.requests) == 2
