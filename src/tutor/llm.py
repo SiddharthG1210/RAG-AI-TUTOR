@@ -1,7 +1,8 @@
 """The one place the tutor talks to the LLM: prompts, the call, rate limits, the token log.
 
-M1 concept "Structured output (question writing)". Every LLM call in the
-tutor goes through ``complete_structured()`` (CLAUDE.md › Guardrails).
+M1 concept "Structured output (question writing)", plus tool calls from the M2
+concept "Tool calling". Every LLM call in the tutor goes through
+``complete_structured()`` or ``complete_with_tools()`` (CLAUDE.md › Guardrails).
 
 **The SDK.** Groq's API is OpenAI-compatible, so the official ``openai`` SDK
 talks to it once ``base_url`` points at Groq. Switching provider means editing
@@ -17,6 +18,15 @@ after such a failure, and a second failure raises. Pydantic then turns the
 JSON into a Python object and checks the rules the schema can't carry, such
 as "exactly 3". Every way the answer itself can be unusable raises the same
 error, ``UnusableAnswer``.
+
+**Tool calls.** The request carries a list of tools: for each one a name, a
+description and a JSON Schema of its arguments (``function_tool()`` builds
+one from a Pydantic model). The LLM never runs a tool. When it wants one, its
+reply holds a request instead of text: the tool's name and the arguments as
+a JSON string. The caller runs the tool and sends the result back in the
+next call (see ``tutor.ask``). Groq can't combine tools with structured
+output in one request, so ``complete_with_tools()`` sends no
+``response_format``.
 
 **The free tier.** Each call's tokens are logged in the ``llm_calls`` table. On
 HTTP 429 ("too many requests") the call waits as long as Groq's ``retry-after``
@@ -61,11 +71,13 @@ class FreeLimitReached(Exception):
 class UnusableAnswer(ValueError):
     """The LLM answered, but its answer can't be used: it broke the schema, or came back empty.
 
-    One error for three causes, so a caller can treat "the LLM's answer was
-    bad" as one case: Groq's ``json_validate_failed`` twice in a row, an empty
-    answer, or Pydantic refusing the JSON (for example 2 questions where
-    ``QuestionSet`` needs exactly 3). The study loop counts it as a failed
-    try at writing questions (M1 concept "Conditional edges"). A refused
+    One error for every cause, so a caller can treat "the LLM's answer was
+    bad" as one case: Groq's ``json_validate_failed`` or ``tool_use_failed``
+    twice in a row, an empty answer, Pydantic refusing the JSON (for example
+    2 questions where ``QuestionSet`` needs exactly 3), or a tool request
+    naming a tool that doesn't exist (``tutor.ask``). The study loop counts
+    it as a failed try at writing questions (M1 concept "Conditional
+    edges"). A refused
     request, such as an unknown model name, is a different problem and stays
     an ``openai.BadRequestError``. It's a ``ValueError`` because the value
     that came back is the problem.
@@ -159,6 +171,43 @@ def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
     return schema
 
 
+def function_tool(model: type[BaseModel], name: str) -> dict[str, Any]:
+    """Build a tool definition, the entry in ``tools`` that the LLM reads, from a Pydantic model.
+
+    The model's fields are the tool's arguments, and its docstring is the
+    tool's description: the sentence the LLM reads to decide whether to call
+    it. Pydantic puts the docstring at the top of the schema, as
+    ``"description"``. The API wants it one level up, next to the name, so
+    it's moved there. The same model later checks the arguments the LLM
+    sends (``model_validate_json``), so what the LLM is told and what code
+    accepts can't drift apart.
+
+    Groq documents strict mode only for ``response_format``, not for tools, so
+    nothing here asks Groq to check the arguments; Pydantic does it on our side.
+
+    Args:
+        model: The arguments' shape, e.g. ``SearchBook`` with its one field ``query``.
+        name: The name the LLM writes back to ask for this tool, e.g. "search_book".
+
+    Returns:
+        ``{"type": "function", "function": {"name", "description", "parameters"}}``.
+
+    Raises:
+        ValueError: If the model has no docstring, since the LLM would get no
+            description of the tool.
+    """
+    parameters = strict_schema(model)
+    description = parameters.pop("description", None)
+    if not description:
+        raise ValueError(f"{model.__name__} needs a docstring: it's the tool's description.")
+    # "type": "function" means a tool the caller runs. (Groq also has
+    # built-in tools, such as web search, that run on its own servers.)
+    return {
+        "type": "function",
+        "function": {"name": name, "description": description, "parameters": parameters},
+    }
+
+
 def _retry_after(error: openai.RateLimitError) -> float | None:
     """Read how many seconds Groq asks us to wait, from the 429 response's header.
 
@@ -203,22 +252,29 @@ def _create(**request: Any) -> Any:
         raise FreeLimitReached("Groq's free limit was reached again after waiting.") from error
 
 
-def _create_valid(**request: Any) -> Any:
-    """Send one chat-completion request, sending it once more if its JSON broke the schema.
+def _create_valid(malformed_code: str, **request: Any) -> Any:
+    """Send one chat-completion request, and once more if the LLM's answer came out malformed.
 
-    Groq checks a strict-mode answer against the schema and, when it doesn't
-    fit, answers HTTP 400 with the code ``json_validate_failed`` instead. The
-    model samples its answer, so a second try usually fits. The failed try's
-    tokens can't be logged: the error carries no token counts.
+    Groq checks what the model wrote before sending it on. When it doesn't
+    fit, Groq answers HTTP 400 with a code instead:
+
+    - ``json_validate_failed``: a strict-mode answer that broke its schema.
+    - ``tool_use_failed``: a tool request Groq couldn't read. (Not in Groq's
+      error docs, but it's the code Groq sends.)
+
+    The model samples its answer, so a second try usually comes out right.
+    The failed try's tokens can't be logged: the error carries no token counts.
 
     Args:
+        malformed_code: The code that means "the answer came out malformed"
+            for this kind of call.
         **request: The request's fields: model, messages, response_format, ….
 
     Returns:
         The SDK's response object.
 
     Raises:
-        UnusableAnswer: If the second try breaks the schema too.
+        UnusableAnswer: If the second try comes out malformed too.
         openai.BadRequestError: If the request was refused for any other reason.
     """
     try:
@@ -226,15 +282,17 @@ def _create_valid(**request: Any) -> Any:
     except openai.BadRequestError as error:
         # Any other 400 (a bad model name, a malformed schema) won't fix
         # itself on a second try, so it's raised at once.
-        if error.code != "json_validate_failed":
+        if error.code != malformed_code:
             raise
     try:
         return _create(**request)
     except openai.BadRequestError as error:
-        if error.code != "json_validate_failed":
+        if error.code != malformed_code:
             raise
         # "from error" keeps Groq's error attached, so the traceback shows both.
-        raise UnusableAnswer("The answer broke the schema twice in a row.") from error
+        raise UnusableAnswer(
+            f"The answer came out malformed twice in a row ({malformed_code})."
+        ) from error
 
 
 def complete_structured[T: BaseModel](
@@ -278,6 +336,7 @@ def complete_structured[T: BaseModel](
     }
     start = time.perf_counter()
     response = _create_valid(
+        "json_validate_failed",
         model=model,
         messages=messages,
         response_format=response_format,
@@ -304,3 +363,86 @@ def complete_structured[T: BaseModel](
         return schema.model_validate_json(content)
     except ValidationError as error:
         raise UnusableAnswer(f"The {purpose} answer from {model} broke a rule: {error}") from error
+
+
+def complete_with_tools(
+    conn: sqlite3.Connection,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    *,
+    model: str,
+    reasoning_effort: str,
+    purpose: str,
+) -> dict[str, Any]:
+    """Send the messages with tools, log the tokens, and return the LLM's reply as a plain dict.
+
+    The reply is one of two things. When the LLM wants a tool, it's a request:
+    ``content`` is usually empty and ``tool_calls`` holds the tool's name and
+    its arguments, as a JSON string. Otherwise it's text in ``content`` and
+    there's no ``tool_calls``. gpt-oss on Groq asks for at most one tool per
+    reply, but ``tool_calls`` is still a list, because that's the API's shape.
+
+    The reply is copied into a plain dict, with only the fields the API reads
+    back, so it can go straight into the next call's ``messages``: a tool's
+    result must follow the request it answers (``tool_call_id``). The SDK's
+    own object carries more, such as gpt-oss's reasoning, and a plain dict is
+    also what LangGraph's checkpointer can store (the M2 concept "The agent
+    loop as a graph" keeps this history in the graph's state).
+
+    Args:
+        conn: An open connection, for the token log.
+        messages: The chat so far. Besides ``system`` and ``user`` messages
+            it can hold earlier replies from this function and the tool
+            results that answer them.
+        tools: Tool definitions, each built by ``function_tool()``.
+        model: The model's name, e.g. ``get_settings().ask_model``.
+        reasoning_effort: "low", "medium" or "high" (see ``complete_structured()``).
+        purpose: What the call is for, e.g. "ask", saved in the token log.
+
+    Returns:
+        ``{"role": "assistant", "content": ...}``, plus ``"tool_calls": [{"id",
+        "type": "function", "function": {"name", "arguments"}}]`` when the LLM
+        asked for a tool.
+
+    Raises:
+        FreeLimitReached: If Groq's free-tier limit stops the call.
+        UnusableAnswer: If the tool request comes out malformed twice in a row
+            (``tool_use_failed``), or the reply has neither text nor a request.
+        openai.BadRequestError: If Groq refuses the request itself.
+    """
+    start = time.perf_counter()
+    # No response_format: Groq can't combine tools with structured output.
+    response = _create_valid(
+        "tool_use_failed",
+        model=model,
+        messages=messages,
+        tools=tools,
+        reasoning_effort=reasoning_effort,
+    )
+    seconds = time.perf_counter() - start
+    usage = response.usage
+    log_llm_call(
+        conn,
+        model,
+        purpose,
+        usage.prompt_tokens,
+        usage.completion_tokens,
+        usage.total_tokens,
+        seconds,
+    )
+    message = response.choices[0].message
+    # The SDK gives None, not an empty list, when there's no request.
+    tool_calls = message.tool_calls or []
+    if not message.content and not tool_calls:
+        raise UnusableAnswer(f"The {purpose} call to {model} came back empty.")
+    reply: dict[str, Any] = {"role": "assistant", "content": message.content}
+    if tool_calls:
+        reply["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.function.name, "arguments": call.function.arguments},
+            }
+            for call in tool_calls
+        ]
+    return reply

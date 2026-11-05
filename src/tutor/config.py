@@ -24,6 +24,9 @@ class Settings(BaseSettings):
         llm_api_key: The Groq key. Required, and can't be empty.
         question_model: The model that writes questions (the smaller one).
         grader_model: The model that grades typed answers (the larger one).
+        ask_model: The model that answers Ask the book (M2). The smaller one,
+            so Ask the book never spends the grader's daily tokens (PLAN.md ›
+            Decisions › LLM).
     """
 
     # env_file: also read .env; extra="ignore": other variables in .env are fine.
@@ -33,6 +36,7 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(min_length=1)
     question_model: str = "openai/gpt-oss-20b"
     grader_model: str = "openai/gpt-oss-120b"
+    ask_model: str = "openai/gpt-oss-20b"
 
 
 @lru_cache(maxsize=1)
