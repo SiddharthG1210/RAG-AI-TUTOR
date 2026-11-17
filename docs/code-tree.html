@@ -115,7 +115,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
 
 <div class="wrap">
   <header>
-    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 29 October 2026 (after the tool-calling pull request was merged)</p>
+    <p class="eyebrow">RAG-AI-TUTOR · the code on main, 18 November 2026 (after the agent-loop pull request was merged)</p>
     <h1>Study Tutor <span class="mark">Code Tree</span></h1>
     <p class="lede">Every file and every function, in plain words. Start with the chains to see which functions call which, then look anything up in the tree.</p>
     <div class="tools">
@@ -144,7 +144,7 @@ footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--rule);font-si
     <p class="nomatch" id="nomatch" hidden>Nothing matches that word.</p>
   </section>
 
-  <footer>Drawn from the code on <code>main</code> after the tool-calling pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
+  <footer>Drawn from the code on <code>main</code> after the agent-loop pull request. Function names are exact; the descriptions are plain-word summaries of each docstring.</footer>
 </div>
 
 <script>
@@ -204,18 +204,28 @@ const CHAINS = [
     ]
   },
   {
-    title: "Ask the book: one search",
-    when: "When the LLM asks to search the book (M2; for now run by scratch/try_search_tool.py, until the agent loop)",
+    title: "Ask the book: the agent loop",
+    when: "uv run python scripts/ask.py \"How is tagging different from classification?\" (the Ask the book box comes next)",
     steps: [
-      ["start_messages", "starts here with your question, e.g. “How is tagging different from classification?”"],
-      ["load_prompt", "ask_book.md + its version → the system message"],
-      ["complete_with_tools", "one LLM call with the search_book tool → its request: search_book {\"query\": \"tagging\"}"],
-      ["run_search_request", "starts with that one request and the ids already shown; does the five steps below"],
+      ["ask_the_book", "starts here with your question: the chat from start_messages(), no ids shown, 0 searches"],
+      ["start_messages", "the rules from ask_book.md + your question → the chat’s first 2 messages"],
+      ["call_llm", "complete_with_tools() with the whole chat and the search_book tool → the LLM’s reply, added to the chat"],
+      ["route_after_llm", "the reply is an order → run_search; a text answer → the end"],
+      ["run_search", "run_search_request() for the order → the result added to the chat, its ids to shown_ids, 1 more search"],
+      ["route_after_search", "fewer than 3 searches → call_llm again; the third → the end, with no 4th call"],
+      ["final_text", "the LLM’s text answer, or None when the 3 searches ran out"]
+    ]
+  },
+  {
+    title: "Ask the book: one search",
+    when: "Inside run_search, for each search the LLM orders",
+    steps: [
+      ["run_search_request", "starts with one order and the ids already shown; does the five steps below"],
       ["read_search_request", "the name checked, the JSON arguments → a SearchBook"],
       ["search", "the query → the closest passages above the cut-off, with room for repeats"],
       ["new_passages", "drops the passages already shown in this chat; keeps the 2 closest new ones"],
       ["format_passages", "the passages → text with each one’s id, section and pages (found only repeats → “nothing new” instead)"],
-      ["tool_result", "that text → the message answering the request by its id, plus the ids handed out"]
+      ["tool_result", "that text → the message answering the order by its id, plus the ids handed out"]
     ]
   },
   {
@@ -407,6 +417,16 @@ const TREE = [
         { kind: "fn", sig: "route_after_pick_question(state)", say: "After a question is picked: ask it, write the questions once more, or skip the passage after 2 failed tries." },
         { kind: "fn", sig: "route_after_wait_for_next(state)", say: "After the pause at the end of a turn: END if you chose to stop, otherwise pick_passage for the next turn." },
         { kind: "fn", sig: "build_graph()", say: "Adds the eight steps (pick_passage, pick_question, ask_question, grades, show_results, topic_not_covered, skip_the_passage, wait_for_next), joins them with edges and the three forks, and compiles the graph with a checkpointer." }
+      ]},
+      { name: "agent.py", what: "Ask the book’s agent loop: the LLM picks each next step (search again, or answer), and code runs it and stops it at 3 searches.", items: [
+        { kind: "shape", sig: "AgentState", say: "The keys one Ask the book chat carries: the chat itself (messages), the ids of the passages shown, and how many searches have run." },
+        { kind: "fn", sig: "call_llm(state, runtime)", say: "Sends the whole chat with the search_book tool and adds the LLM’s reply: an order, or a text answer." },
+        { kind: "fn", sig: "run_search(state, runtime)", say: "Runs the search the LLM ordered and adds the result to the chat; an order past the limit gets a “not run” result instead." },
+        { kind: "fn", sig: "route_after_llm(state)", say: "After the LLM’s reply: an order → run_search; a text answer → the end." },
+        { kind: "fn", sig: "route_after_search(state)", say: "After a search: fewer than 3 → ask the LLM again; the third → the end, without a 4th call." },
+        { kind: "fn", sig: "build_agent_graph()", say: "Adds the two nodes, the edge from the start and the two forks, and compiles the loop (no checkpointer: it never pauses)." },
+        { kind: "fn", sig: "ask_the_book(graph, context, question)", say: "Runs the loop on one question, from the first messages to the LLM’s last move, and gives back the final state." },
+        { kind: "fn", sig: "final_text(state)", say: "The LLM’s text answer, or nothing when the loop stopped at the search limit." }
       ]}
     ]
   },
@@ -483,6 +503,13 @@ const TREE = [
         { kind: "fn", sig: "print_shown(shown)", say: "Prints what the turn shows: the grade and the passage, or the message shown instead." },
         { kind: "fn", sig: "read_next()", say: "Reads the next topic, Enter for “You choose”, or s to stop." },
         { kind: "fn", sig: "parse_args()", say: "Reads the command-line options, like --topic." }
+      ]},
+      { name: "ask.py", what: "Ask the book one question in the terminal, and see every step of the agent loop.", items: [
+        { kind: "fn", sig: "main()", say: "Runs the loop on your question, then prints each step, the answer, and the LLM calls and tokens it used." },
+        { kind: "fn", sig: "print_steps(state)", say: "Prints each search the LLM ordered and the passages it found, then whether it answered." },
+        { kind: "fn", sig: "last_call_id(conn)", say: "Where the token log ends right now." },
+        { kind: "fn", sig: "calls_since(conn, after_id)", say: "Counts the LLM calls and tokens since a point in the token log." },
+        { kind: "fn", sig: "parse_args()", say: "Reads your question and the database’s path." }
       ]}
     ]
   }
