@@ -182,3 +182,24 @@ What I've learned building the Study Tutor, and what I did to learn it, in plain
 - A version is three things. The number in `pyproject.toml` (and `uv.lock`, or CI's `uv sync --locked` fails). A git tag: a permanent name on one commit; `-a` makes an annotated tag, with a message, a date and my name, and tags are pushed on their own (`git push origin v0.1.0`). And a GitHub Release: the page on that tag, with notes.
 - Changes that aren't committed don't belong to any branch yet. `git switch -c <branch>` carries them onto the new branch.
 
+## M2: Ask the book, your first agent
+
+### Tool calling (2026-11-05)
+**Did:** confirmed that gpt-oss-20b answers Ask the book. Went through a tiny file in `scratch/` block by block, then asked Claude to write the chain and build it all. Got lost in the architecture talk, so moved to the real files and went through them one piece at a time, asking about every word I didn't get. Spotted that the same passage could reach the LLM twice, and had that fixed before merging.
+**Learned:**
+- An LLM can only write text. "Giving it a tool" means sending a *description* of the tool, never the function. The LLM writes an order (`search_book`, `{"query": "tagging"}`), and my code runs the search.
+- That's why it takes two calls. Call 1 can't answer, because the LLM hasn't seen any passage yet, so all it returns is the order. My code runs the search between the calls, and call 2 sends everything so the LLM can answer, or order another search.
+- I never tell the LLM how to write an order. gpt-oss was trained on that format, and Groq puts the tools in its prompt and cuts the order out of its reply. My description only says what the tool does and what inputs it takes.
+- Arguments are the inputs of a function. The LLM writes them as a JSON string. `json.loads` turns that text into a dict, and `["query"]` picks one value out of the dict.
+- Nothing remembers anything between calls, so the `messages` list is the only memory. It gets two appends because a message has one role: the LLM's own order, then the result. The result carries the order's id, so it's clear which order it answers.
+- `messages` and `tools` are two separate fields of one request. The tool never goes inside the messages.
+- `SearchBook` is the tool's shape: its docstring tells the LLM what the tool is for, and the field's description steers what it searches for. `strict_schema()` turns the class into a JSON Schema, and `function_tool()` adds the name and moves the description up next to it. In `function_tool()`, `model` means the Pydantic class, not the LLM.
+- It's the same schema format as M1, but without `"strict": true`, so Groq doesn't enforce it. The schema goes out as instructions, only the LLM's filled-in arguments come back, and Pydantic checks those in `read_search_request()`.
+- `llm.py` knows nothing about books. That's why it says `tools=tools`: it takes the tools as an input, and the code calling it passes `[SEARCH_BOOK_TOOL]`.
+- Sending is layers, each with one job: `_create_valid()` tries once more if the answer came out garbled, `_create()` waits and retries after "too many requests", and the SDK client does the real sending. An SDK is a library that does the web request for me, and the client is the object that remembers Groq's address and my key.
+- Python: a parameter written with `=` has a default, so `search()` works with 3 arguments even though it has 4 parameters. `**request` packs all the leftover named arguments into one dict, which lets one function serve both kinds of LLM call.
+- The cut-off measures closeness, not coverage. "learning javascript" passes it, because it shares vocabulary with the book, and only something that reads the passages can see they don't answer it. So the prompt still has to say "tell me if the book doesn't cover this".
+- My catch: two searches can land on the same passage. Every call resends the whole chat, so a repeat costs its tokens again on every later call. `run_search_request()` forgets everything when it returns, so it's handed the ids already shown, and it brings the next closest passages instead. "Nothing new" stays separate from "nothing close enough", because they mean different things.
+- In the real run, the LLM searched "tagging" and answered after that one search. Its answer included things the passages don't say, like spam detection. That's what the citation check in "Answers grounded in several passages" is for.
+- This concept built the pieces, not the order they run in. Nothing in `src/tutor/` calls them yet. That's why I couldn't find the calling order in the real files: it only exists in a `scratch/` file until "The agent loop as a graph".
+

@@ -2,12 +2,12 @@
   "title": "Study Tutor Map",
   "name": "Study Tutor",
   "mark": "Map",
-  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 29 October 2026",
+  "eyebrow": "RAG-AI-TUTOR · drawn from PLAN.md, 18 November 2026",
   "lede": "Every concept you’ll build, the file it lives in, and the tool that does the work, all linked. Pick anything to see what it touches.",
-  "footer": "Drawn from PLAN.md as of 29 October 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
+  "footer": "Drawn from PLAN.md as of 18 November 2026. Study material: Dive into Deep Learning by Zhang, Lipton, Li and Smola, CC BY-SA 4.0.",
   "unit": "concepts",
   "asOfTitle": "Show the tutor as of",
-  "start": "m2-1",
+  "start": "m2-2",
   "milestones": [
     {"n": 0, "short": "Setup", "title": "Setup", "ver": "", "items": [
       {"id": "m0-1", "name": "Tooling: uv, ruff and pytest", "who": null, "youLabel": "you did", "claudeLabel": "Claude did", "why": "One command builds the same environment on your laptop and on CI.", "you": "Ran `uv sync`, `uv run pytest` and the ruff checks.", "claude": "`pyproject.toml`, `.python-version` and the smoke test.", "files": ["pyproject", "uvlock", "pyver", "tests"], "tools": ["uv", "ruff", "pytest"]},
@@ -29,7 +29,7 @@
     ]},
     {"n": 2, "short": "Ask the book", "title": "Ask the book, your first agent", "ver": "v0.2.0", "items": [
       {"id": "m2-1", "num": 1, "name": "Tool calling", "who": "you", "why": "Lets the LLM ask your code to run something, here a search of the book.", "you": "The `search_book(query)` tool definition: the description and parameters the LLM reads.", "claude": "Tool calls in the LLM wrapper, running a requested search, tests with a fake LLM.", "files": ["llm", "ask", "search", "p-ask", "config", "env", "tests", "codetree"], "tools": ["groq", "openai", "pydantic"]},
-      {"id": "m2-2", "num": 2, "name": "The agent loop as a graph", "who": "you", "why": "The one place where the LLM chooses the next step, with code capping it.", "you": "The routing function: search again, answer, or stop after 3 searches.", "claude": "The agent subgraph (an LLM node and a tool node) and its message history.", "files": ["agent"], "tools": ["langgraph", "groq"]},
+      {"id": "m2-2", "num": 2, "name": "The agent loop as a graph", "who": "you", "why": "The one place where the LLM chooses the next step, with code capping it.", "you": "The routing function: search again, answer, or stop after 3 searches.", "claude": "The agent subgraph (an LLM node and a tool node) and its message history.", "files": ["agent", "s-ask", "p-ask", "tests", "codetree"], "tools": ["langgraph", "groq", "pytest"]},
       {"id": "m2-3", "num": 3, "name": "Answers grounded in several passages", "who": "you", "why": "Classic RAG: answer from several retrieved passages, with every citation checked.", "you": "The answer prompt and the `BookAnswer` schema.", "claude": "The quote check on every citation, the “no support found” path, the Ask the book box, the asks table.", "files": ["ask", "p-ask", "ui", "dbpy"], "tools": ["groq", "pydantic", "gradio", "sqlite"]},
       {"id": "m2-4", "num": 4, "name": "Hybrid search", "who": "you", "optional": true, "why": "Keyword search catches exact terms that meaning search can miss.", "you": "Reciprocal rank fusion: merging the keyword ranking with the embedding ranking.", "claude": "Keyword search with SQLite FTS5, the hybrid `search_book`, a comparison on the retrieval check.", "files": ["keyword", "search", "s-check"], "tools": ["fts5", "numpy", "bge"]}
     ]},
@@ -161,6 +161,7 @@
     {"id": "s-checkq", "name": "check_questions.py", "f": "scripts", "ms": 1, "tools": ["groq", "sqlite"], "what": "Writes questions for 10 passages on a copy of the database: the quote-check pass rate, and a made-up quote and one-word changes rejected."},
     {"id": "s-regrade", "name": "regrade.py", "f": "scripts", "ms": 1, "tools": ["groq"], "what": "Re-grades the regression set after any change to `grader.md` and lists every grade that changed."},
     {"id": "s-study", "name": "study.py", "f": "scripts", "ms": 1, "tools": ["langgraph", "groq", "sqlite"], "what": "Study in the terminal, on the real database: starts a session, then resumes the graph at every pause with what you type, until you stop."},
+    {"id": "s-ask", "name": "ask.py", "f": "scripts", "ms": 2, "tools": ["langgraph", "groq", "sqlite"], "what": "Ask the book one question in the terminal: runs the agent loop and prints each search, what it found, and the answer."},
     {"id": "tests", "name": "test_*.py", "f": "tests", "ms": 0, "tools": ["pytest"], "what": "One test file per module. A fake stands in for the LLM, because CI has no API key."},
     {"id": "d-pdf", "name": "d2l-en.pdf", "f": "data", "ms": 0, "tools": ["pymupdf"], "what": "The book: Dive into Deep Learning, CC BY-SA 4.0. 45 MB, so it stays out of git."},
     {"id": "d-db", "name": "tutor.db", "f": "data", "ms": 1, "tools": ["sqlite"], "what": "The SQLite database the tutor writes."},

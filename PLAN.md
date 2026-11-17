@@ -108,6 +108,7 @@ This file is the complete build plan, from setup (M0) to the shareable v1 (M7): 
   - During the pause after a grade, you can type a question about the material.
   - An agent answers it. The LLM gets your question and one tool, `search_book(query)`, and decides what to search for, at most 3 times. Code runs each search (the same search as a typed topic) and hands back the passages with their ids.
   - A passage goes to the LLM only once per question, because every call resends the whole chat. A later search leaves out the passages already handed back and brings the next closest instead. If it finds only those, it says there's nothing new, which isn't the same as finding nothing.
+  - Code decides after every step, in two forks: after the LLM's reply (an order → run the search; text → finish), and after each search (fewer than 3 → ask the LLM again; the third → finish, without asking the LLM again). Groq can't send tools and structured output in one request, so the cited answer is written by a last call with no tools. A question costs at most 4 LLM calls: up to 3 that can order a search, and the one that writes the answer.
   - The answer must cite the passages it used, each with a quote, and code checks every quote. A failed quote shows "I couldn't find support for this answer". If no search finds anything close enough, it says "the material doesn't cover this".
   - Then the loop pauses again, so you can ask another question or press Next or Stop.
 
